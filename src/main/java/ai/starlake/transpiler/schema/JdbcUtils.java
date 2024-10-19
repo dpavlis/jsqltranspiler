@@ -27,7 +27,7 @@ public class JdbcUtils {
     SNOWFLAKE("SNOWFLAKE", new String[] {"TABLE", "VIEW"}, null,
         "SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()"),
     // --
-    DUCKCB("DUCK", null, null, "SELECT current_catalog(), current_schema()"),
+    DUCKDB("DUCK", null, null, "SELECT current_catalog(), current_schema()"),
     // --
     OTHER("OTHER", null, null, "SELECT current_database(), current_schema()");
 
@@ -39,14 +39,14 @@ public class JdbcUtils {
     /**
      * DB specific "configuration" for extracting metadata through JDBC connection
      * 
-     * @param identString an unique string which identifying this DB type - will be compared to
+     * @param identString an unique string identifying this DB type - will be compared to
      *        {@link java.sql.DatabaseMetaData#getDatabaseProductName()} value to identify the DB
-     *        specific variant
+     *        specific variant.
      * @param tableTypes which table types are considered when processing DB's schema to extract
-     *        metadata information used for parsing&analyzing SQL statement (usualy TABLE, VIEW) if
-     *        null then all types considered
+     *        metadata information used for parsing&analyzing SQL statement (usually TABLE, VIEW). If
+     *        null then all types considered.
      * @param excludedSchemas which schemas should be excluded/ignored when processing particular
-     *        DB's catalog&schemas, if null, then all schemas accepted
+     *        DB's catalog&schemas. If null, then all schemas accepted.
      * @param schemaQuery query to execute against particular DB type to get information about
      *        current catalog/db & schema.
      */
