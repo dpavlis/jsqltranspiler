@@ -110,6 +110,10 @@ public class JdbcResultSetMetaData implements ResultSetMetaData {
     return columns.get(column - 1).columnName;
   }
 
+  public String getScopeColumn(int column) {
+    return columns.get(column - 1).scopeColumn;
+  }
+
   public String getScopeTable(int column) {
     return columns.get(column - 1).scopeTable;
   }

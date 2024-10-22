@@ -67,12 +67,12 @@ public class JsonTreeBuilder extends TreeBuilder<String> {
     jsonBuilder.append("{\n");
 
     addIndentation(indent + 2);
-    jsonBuilder.append("\"name\": \"").append(column.columnName).append("\"");
+    jsonBuilder.append("\"name\": \"").append(column.columnName).append("\",");
 
     if (alias != null && !alias.isEmpty()) {
-      jsonBuilder.append(",\n");
+      jsonBuilder.append("\n");
       addIndentation(indent + 2);
-      jsonBuilder.append("\"alias\": \"").append(alias).append("\"");
+      jsonBuilder.append("\"alias\": \"").append(alias).append("\",");
     }
 
     if (column.getExpression() instanceof Column) {
@@ -111,7 +111,7 @@ public class JsonTreeBuilder extends TreeBuilder<String> {
 
       jsonBuilder.append("\n");
       addIndentation(indent + 2);
-      jsonBuilder.append("\"nullable\": ").append(column.isNullable);
+      jsonBuilder.append("\"nullable\": ").append(column.isNullable.equalsIgnoreCase("YES"));
     }
 
     Expression expression = column.getExpression();

@@ -253,7 +253,10 @@ public final class JdbcMetaData implements DatabaseMetaData {
             rsMetaData.getScopeTable(i) != null && !rsMetaData.getScopeTable(i).isEmpty()
                 ? rsMetaData.getScopeTable(i)
                 : rsMetaData.getTableName(i),
-            rsMetaData.getColumnName(i), null, "", "");
+            rsMetaData.getScopeColumn(i) != null && !rsMetaData.getScopeColumn(i).isEmpty()
+                ? rsMetaData.getScopeColumn(i)
+                : rsMetaData.getColumnName(i),
+            null, "", "");
 
         // add the Lineage Information, 0-Indexed
         col.add(rsMetaData.columns.get(i - 1).getChildren());
@@ -318,6 +321,9 @@ public final class JdbcMetaData implements DatabaseMetaData {
           if (column.scopeTable == null || column.scopeTable.isEmpty()) {
             column.scopeTable = jdbcTable.tableName;
           }
+          if (column.scopeColumn == null || column.scopeColumn.isEmpty()) {
+            column.scopeColumn = column.columnName;
+          }
 
           jdbcColumns.add(column);
         }
@@ -337,6 +343,9 @@ public final class JdbcMetaData implements DatabaseMetaData {
           }
           if (column.scopeTable == null || column.scopeTable.isEmpty()) {
             column.scopeTable = jdbcTable.tableName;
+          }
+          if (column.scopeColumn == null || column.scopeColumn.isEmpty()) {
+            column.scopeColumn = column.columnName;
           }
           jdbcColumns.add(column);
         }

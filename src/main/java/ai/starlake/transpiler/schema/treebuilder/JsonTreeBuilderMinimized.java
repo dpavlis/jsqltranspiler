@@ -50,8 +50,7 @@ public class JsonTreeBuilderMinimized extends TreeBuilder<String> {
     jsonBuilder.append("\"name\":\"").append(column.columnName).append("\",");
 
     if (alias != null && !alias.isEmpty()) {
-      jsonBuilder.append(",");
-      jsonBuilder.append("\"alias\":\"").append(alias).append("\"");
+      jsonBuilder.append("\"alias\":\"").append(alias).append("\",");
     }
 
     if (column.getExpression() instanceof Column) {
