@@ -1,6 +1,6 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI
+ * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -264,7 +264,7 @@ public class JSQLTranspilerTest {
     info.put("old_implicit_casting", "true");
     info.put("default_null_order", "NULLS FIRST");
     info.put("default_order", "ASC");
-    info.put("memory_limit", "1GB");
+    info.put("memory_limit", "250M");
     connDuck = DriverManager.getConnection("jdbc:duckdb:" + fileDuckDB.getAbsolutePath(), info);
 
     if (!isInitialised) {

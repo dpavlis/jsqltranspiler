@@ -214,7 +214,7 @@ license {
 
     ext.year = Calendar.getInstance().get(Calendar.YEAR)
     ext.name = 'Starlake.AI'
-    ext.email = 'andreas@manticore-projects.com'
+    ext.email = 'hayssam.saleh@starlake.ai'
 
     strictCheck = false
     ignoreFailures = true
@@ -395,7 +395,7 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.withType(Test).configureEach {
-    maxParallelForks = 100
+    maxParallelForks = 10
 }
 
 tasks.register('gitChangelogTask', GitChangelogTask) {
