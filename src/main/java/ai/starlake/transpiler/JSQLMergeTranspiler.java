@@ -1,6 +1,6 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI
+ * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,9 +21,8 @@ import net.sf.jsqlparser.util.deparser.MergeDeParser;
 import net.sf.jsqlparser.util.deparser.SelectDeParser;
 
 public class JSQLMergeTranspiler extends MergeDeParser {
-    public JSQLMergeTranspiler(ExpressionDeParser expressionDeParser,
-                               SelectDeParser selectDeParser,
-                               StringBuilder buffer) {
-        super(expressionDeParser, selectDeParser, buffer);
-    }
+  public JSQLMergeTranspiler(ExpressionDeParser expressionDeParser, SelectDeParser selectDeParser,
+      StringBuilder buffer) {
+    super(expressionDeParser, selectDeParser, buffer);
+  }
 }
