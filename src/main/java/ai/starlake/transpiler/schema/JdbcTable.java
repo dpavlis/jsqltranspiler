@@ -142,7 +142,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
   }
 
   public void getColumns(DatabaseMetaData metaData) throws SQLException {
-    try (ResultSet rs = metaData.getColumns(tableCatalog, tableSchema, tableName, "%");) {
+    try (ResultSet rs = metaData.getColumns(tableCatalog, tableSchema,
+        JdbcUtils.escapeSQLWildcardChars(tableName, metaData.getSearchStringEscape()), "%");) {
       while (rs.next()) {
         // TABLE_CATALOG String => catalog name (may be null)
         String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT", "");

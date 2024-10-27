@@ -27,7 +27,11 @@ public class JdbcUtils {
 
   public enum DatabaseSpecific {
     // --
-    ORACLE("ORACLE", new String[] {"SYNONYM", "TABLE", "VIEW"}, new String[] {"SYS"},
+    /**
+     * 
+     */
+    ORACLE("ORACLE", new String[] {"SYNONYM", "TABLE", "VIEW"},
+        new String[] {"SYS", "CTXSYS", "CTXAPP", "MDSYS"},
         "SELECT SYS_CONTEXT('USERENV', 'DB_NAME') AS database_name , SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AS current_schema FROM dual"),
     // --
     POSTGRESQL("POSTGRESQL",
@@ -59,8 +63,8 @@ public class JdbcUtils {
      *        {@link java.sql.DatabaseMetaData#getDatabaseProductName()} value to identify the DB
      *        specific variant.
      * @param tableTypes which table types are considered when processing DB's schema to extract
-     *        metadata information used for parsing&analyzing SQL statement (usually TABLE, VIEW). If
-     *        null then all types considered.
+     *        metadata information used for parsing&analyzing SQL statement (usually TABLE, VIEW).
+     *        If null then all types considered.
      * @param excludedSchemas which schemas should be excluded/ignored when processing particular
      *        DB's catalog&schemas. If null, then all schemas accepted.
      * @param schemaQuery query to execute against particular DB type to get information about
@@ -192,5 +196,20 @@ public class JdbcUtils {
     } catch (SQLException e) {
       return null;
     }
+  }
+
+  /**
+   * Escapes potential SQL's wildcard characters collisions in input string using provided escape
+   * char. e.g. "TABLEAB_C" to "TABLEAB/_C" to treat it as plain string, not wildcard
+   * 
+   * 
+   * @param input string to escape
+   * @param escapeChar character to use to escape (usually obtained through calling
+   *        DatabaseMetadata.getSearchStringEscape() )
+   * @return
+   */
+  public static final String escapeSQLWildcardChars(String input, String escapeChar) {
+    final String escape = escapeChar.equals("\\") ? "\\\\" : escapeChar;
+    return input.replaceAll("([_%" + escape + "])", escape + "$1");
   }
 }
