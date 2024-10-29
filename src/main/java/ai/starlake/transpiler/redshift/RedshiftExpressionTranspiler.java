@@ -55,27 +55,7 @@ public class RedshiftExpressionTranspiler extends JSQLExpressionTranspiler {
 
   enum TranspiledFunction {
     // @FORMATTER:OFF
-    BPCHARCMP, BTRIM, BTTEXT_PATTERN_CMP, CHAR_LENGTH, CHARACTER_LENGTH, TEXTLEN, LEN, CHARINDEX, STRPOS, COLLATE, OCTETINDEX
-
-    , REGEXP_COUNT, REGEXP_INSTR, REGEXP_REPLACE, REGEXP_SUBSTR, REPLICATE
-
-    , ADD_MONTHS, CONVERT_TIMEZONE, DATE_CMP, DATE_CMP_TIMESTAMP, DATE_CMP_TIMESTAMPTZ, DATEADD, DATEDIFF, DATE_PART, DATE_PART_YEAR
-
-    , DATE_TRUNC, GETDATE, INTERVAL_CMP, MONTHS_BETWEEN, SYSDATE, TIMEOFDAY, TIMESTAMP_CMP, TIMESTAMP_CMP_DATE
-
-    , TIMESTAMP_CMP_TIMESTAMPTZ, TIMESTAMPTZ_CMP, TIMESTAMPTZ_CMP_DATE, TIMESTAMPTZ_CMP_TIMESTAMP, TIMEZONE, TO_TIMESTAMP
-
-    , ARRAY, ARRAY_FLATTEN, GET_ARRAY_LENGTH, SPLIT_TO_ARRAY, SUBARRAY
-
-    , DEXP, DLOG1, DLOG10, LOG
-
-    , TRUNC
-
-    , TO_CHAR, TO_NUMBER, CONVERT
-
-    , APPROXIMATE_PERCENTILE_DISC, APPROXIMATE_COUNT
-
-    ;
+    BPCHARCMP, BTRIM, BTTEXT_PATTERN_CMP, CHAR_LENGTH, CHARACTER_LENGTH, TEXTLEN, LEN, CHARINDEX, STRPOS, COLLATE, OCTETINDEX, REGEXP_COUNT, REGEXP_INSTR, REGEXP_REPLACE, REGEXP_SUBSTR, REPLICATE, ADD_MONTHS, CONVERT_TIMEZONE, DATE_CMP, DATE_CMP_TIMESTAMP, DATE_CMP_TIMESTAMPTZ, DATEADD, DATEDIFF, DATE_PART, DATE_PART_YEAR, DATE_TRUNC, GETDATE, INTERVAL_CMP, MONTHS_BETWEEN, SYSDATE, TIMEOFDAY, TIMESTAMP_CMP, TIMESTAMP_CMP_DATE, TIMESTAMP_CMP_TIMESTAMPTZ, TIMESTAMPTZ_CMP, TIMESTAMPTZ_CMP_DATE, TIMESTAMPTZ_CMP_TIMESTAMP, TIMEZONE, TO_TIMESTAMP, ARRAY, ARRAY_FLATTEN, GET_ARRAY_LENGTH, SPLIT_TO_ARRAY, SUBARRAY, DEXP, DLOG1, DLOG10, LOG, TRUNC, TO_CHAR, TO_NUMBER, CONVERT, APPROXIMATE_PERCENTILE_DISC, APPROXIMATE_COUNT, GEOMETRYTYPE, ST_GEOMFROMTEXT, ST_GEOGFROMTEXT, ST_ASEWKB, ST_ASEWKT, ST_ASBINARY, ST_ASGEOJSON, ST_ASHEXEWKB, ST_ASTEXT, ST_BUFFER, ST_COLLECT, ST_DISTANCESPHERE, ST_FORCE3D, ST_GEOGFROMWKB, ST_GEOMFROMWKB, ST_GEOMFROMEWKB, ST_GEOMFROMEWKT, ST_LENGTHSPHERE, ST_LENGTH2D, ST_MAKEPOINT, ST_NDIMS, ST_PERIMETER2D, ST_POLYGON;
     // @FORMATTER:ON
 
 
@@ -569,6 +549,103 @@ public class RedshiftExpressionTranspiler extends JSQLExpressionTranspiler {
         case APPROXIMATE_COUNT:
           function.setName("approx_count_distinct");
           break;
+        case GEOMETRYTYPE:
+          function.setName("ST_GeometryType");
+          break;
+        case ST_GEOGFROMTEXT:
+        case ST_GEOMFROMTEXT:
+        case ST_GEOMFROMEWKT:
+          function.setName("ST_GEOMFROMTEXT$$");
+          if (paramCount == 2) {
+            warning("SRID is not supported");
+          }
+          if (parameters.get(0) instanceof StringValue) {
+            String regex = "(?i)SRID=\\d+;";
+            String s = ((StringValue) parameters.get(0)).getValue();
+            if (s.toUpperCase().contains("SRID")) {
+              warning("SRID is not supported");
+              function.setParameters(new StringValue(s.replaceAll(regex, "")));
+            } else {
+              function.setParameters(parameters.get(0));
+            }
+          } else {
+            function.setParameters(parameters.get(0));
+          }
+          break;
+        case ST_ASBINARY:
+          rewrittenExpression = new CastExpression("$$", function.withName("ST_AsWKB$$"), "BLOB");
+          break;
+        case ST_ASEWKB:
+          function.setName("ST_AsWKB$$");
+          break;
+        case ST_ASEWKT:
+          if (paramCount == 2) {
+            warning("PRECISION is not supported");
+          }
+          function.setName("ST_AsText$$");
+          function.setParameters(parameters.get(0));
+          break;
+        case ST_ASGEOJSON:
+        case ST_ASTEXT:
+          if (paramCount == 2) {
+            warning("PRECISION is not supported");
+            function.setParameters(parameters.get(0));
+          }
+          break;
+        case ST_ASHEXEWKB:
+          function.setName("ST_ASHEXWKB");
+          break;
+        case ST_BUFFER:
+          function.setName("ST_BUFFER$$");
+          break;
+        case ST_COLLECT:
+          switch (paramCount) {
+            case 1:
+              function.setParameters(new Function("List", parameters));
+              break;
+            case 2:
+              function.setParameters(new Function("Array_value", parameters));
+              break;
+          }
+          break;
+        case ST_DISTANCESPHERE:
+          warning("Returns wrong results.");
+          function.setName("ST_DISTANCE_SPHERE");
+          break;
+        case ST_FORCE3D:
+          function.setName("ST_FORCE3DZ");
+          break;
+        case ST_GEOMFROMWKB:
+        case ST_GEOGFROMWKB:
+          function.setName("ST_GEOMFROMHEXWKB");
+          break;
+        case ST_GEOMFROMEWKB:
+          function.setName("ST_GEOMFROMHEXEWKB");
+          break;
+        case ST_LENGTHSPHERE:
+          warning("Results differ");
+          function.setName("ST_LENGTH_SPHEROID");
+          break;
+        case ST_LENGTH2D:
+          function.setName("ST_LENGTH");
+          break;
+        case ST_MAKEPOINT:
+          function.setName("ST_POINT");
+          break;
+        case ST_NDIMS:
+          warning("Produces wrong result");
+          function.setName("ST_DIMENSION");
+          break;
+        case ST_PERIMETER2D:
+          function.setName("ST_PERIMETER");
+          break;
+        case ST_POLYGON:
+          if (paramCount == 2) {
+            warning("SRID is not supported");
+          }
+          function.setName("ST_MakePolygon");
+          function.setParameters(parameters.get(0));
+          break;
       }
     }
     if (rewrittenExpression == null) {
@@ -608,6 +685,9 @@ public class RedshiftExpressionTranspiler extends JSQLExpressionTranspiler {
           break;
         case APPROXIMATE_COUNT:
           function.setName("approx_count_distinct");
+          break;
+        case ST_COLLECT:
+          rewrittenExpression = new Function("ST_COLLECT$$", function.withName("Array_Agg"));
           break;
       }
     }
