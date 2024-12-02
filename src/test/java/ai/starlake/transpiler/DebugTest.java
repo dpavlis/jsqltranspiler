@@ -16,6 +16,9 @@
  */
 package ai.starlake.transpiler;
 
+import ai.starlake.transpiler.bigquery.BigQueryTranspiler;
+import net.sf.jsqlparser.JSQLParserException;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -27,12 +30,13 @@ import java.util.stream.Stream;
 // The purpose of this facility is to debug one single test line by line
 // Since this is not easy when using the parametrised tests
 public class DebugTest extends JSQLTranspilerTest {
-  public final static String TEST_FOLDER_STR = "build/resources/test/ai/starlake/transpiler/any";
+  public final static String TEST_FOLDER_STR =
+      "build/resources/test/ai/starlake/transpiler/redshift";
 
   public static final FilenameFilter FILENAME_FILTER = new FilenameFilter() {
     @Override
     public boolean accept(File dir, String name) {
-      return name.toLowerCase().endsWith("debug.sql");
+      return name.toLowerCase().endsWith("json_boun_fixed.sql");
     }
   };
 
@@ -45,5 +49,17 @@ public class DebugTest extends JSQLTranspilerTest {
   @MethodSource("getSqlTestMap")
   protected void transpile(File f, int idx, SQLTest t) throws Exception {
     super.transpile(f, idx, t);
+  }
+
+  @Test
+  void testTranspiled() throws JSQLParserException, InterruptedException {
+    String sqlStr = "SELECT JSON_EXTRACT(\n"
+        + "               '{\"class\": {\"students\": [{\"name\": \"Jane\"}]}}',\n"
+        + "               \"$.class['students']\") AS student_names;";
+
+    String s = BigQueryTranspiler.transpileQuery(sqlStr, JSQLTranspiler.Dialect.GOOGLE_BIG_QUERY);
+    System.out.println(s);
+
+
   }
 }
