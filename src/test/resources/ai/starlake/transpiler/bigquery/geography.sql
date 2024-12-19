@@ -1,453 +1,123 @@
 -- provided
-WITH polygon AS (SELECT 'POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))' AS p)
-SELECT
-  ST_CONTAINS(ST_GEOGFROMTEXT(p), ST_GEOGPOINT(1, 1)) AS fromtext_default,
-  ST_CONTAINS(ST_GEOGFROMTEXT(p, oriented => FALSE), ST_GEOGPOINT(1, 1)) AS non_oriented,
-  ST_CONTAINS(ST_GEOGFROMTEXT(p, oriented => TRUE),  ST_GEOGPOINT(1, 1)) AS oriented
-FROM polygon;
+select st_area(ST_GEOGFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')) as area;
 
 -- expected
-WITH polygon AS (SELECT 'POLYGON((0 0, 0 2, 2 2, 2 0, 0 0))' AS p)
-SELECT
-  ST_CONTAINS(ST_GEOMFROMTEXT(p), ST_POINT(1, 1)) AS fromtext_default,
-  /*Warning: ORIENTED, PLANAR, MAKE_VALID parameters unsupported.*/ ST_CONTAINS(ST_GEOmFROMTEXT(p, oriented => FALSE), ST_POINT(1, 1)) AS non_oriented,
-  /*Warning: ORIENTED, PLANAR, MAKE_VALID parameters unsupported.*/ ST_CONTAINS(ST_GEOmFROMTEXT(p, oriented => TRUE),  ST_POINT(1, 1)) AS oriented
-FROM polygon;
+SELECT ST_Area_Spheroid(ST_GEOMFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')) AS area;
 
 -- result
-"fromtext_default","non_oriented","oriented"
-"true","true","true"
+"area"
+"12308778361.469452"
 
 
 -- provided
-select ST_GEOGFROMGEOJSON('{
-    "type": "Point",
-    "coordinates": [30.0, 10.0]}') as p;
+select ST_DISTANCE(ST_GEOGFROMTEXT('POINT(2.3058359 48.858904)'),ST_GEOGFROMTEXT('POINT(11.4594367 48.1549958)'), true) / 1000 as km
 
 -- expected
-select ST_GeomFromGeoJSON('{
-    "type": "Point",
-    "coordinates": [30.0, 10.0]}') as p;
+SELECT IF(TRUE
+,ST_DISTANCE_SPHEROID(
+    ST_FLIPCOORDINATES(ST_GEOMFROMTEXT('POINT(2.3058359 48.858904)'))
+    ,ST_FLIPCOORDINATES(ST_GEOMFROMTEXT('POINT(11.4594367 48.1549958)')))
+,ST_DISTANCE_SPHERE(
+    ST_FLIPCOORDINATES(ST_GEOMFROMTEXT('POINT(2.3058359 48.858904)'))
+    ,ST_FLIPCOORDINATES(ST_GEOMFROMTEXT('POINT(11.4594367 48.1549958)')))
+)/1000 AS KM;
 
--- result
-"p"
-"POINT (30 10)"
+-- results
+"km"
+"680.463998149"
 
-
---provided
-WITH wkb_data AS (
-  SELECT '010200000002000000feffffffffffef3f000000000000f03f01000000000008400000000000000040' geo
-)
-SELECT
-  ST_GeogFromWkb(geo, planar=>TRUE) AS from_planar,
-  ST_GeogFromWkb(geo, planar=>FALSE) AS from_geodesic
-FROM wkb_data
-;
+-- provided
+select ST_DISTANCE(ST_GEOGFROMTEXT('POINT(2.3058359 48.858904)'),ST_GEOGFROMTEXT('POINT(11.4594367 48.1549958)')) / 1000 as km
 
 -- expected
-WITH wkb_data AS (
-        SELECT '010200000002000000feffffffffffef3f000000000000f03f01000000000008400000000000000040' geo  )
-SELECT  /*Warning: ORIENTED, PLANAR, MAKE_VALID parameters unsupported.*/ If( Regexp_Matches( geo, '^[0-9A-Fa-f]+$' ), St_Geomfromhexewkb( geo ), St_Geomfromwkb( geo::BLOB ) ) AS from_planar
-        , /*Warning: ORIENTED, PLANAR, MAKE_VALID parameters unsupported.*/  If( Regexp_Matches( geo, '^[0-9A-Fa-f]+$' ), St_Geomfromhexewkb( geo ), St_Geomfromwkb( geo::BLOB ) ) AS from_geodesic
-FROM wkb_data
-;
+SELECT ST_DISTANCE_SPHERE(
+    ST_FLIPCOORDINATES(ST_GEOMFROMTEXT('POINT(2.3058359 48.858904)'))
+    ,ST_FLIPCOORDINATES(ST_GEOMFROMTEXT('POINT(11.4594367 48.1549958)'))
+)/1000 AS KM;
 
--- result
-"from_planar","from_geodesic"
-"LINESTRING (1 1, 3 2)","LINESTRING (1 1, 3 2)"
-
-
---provided
-SELECT
-  -- num_seg_quarter_circle=2
-  ST_NUMPOINTS(ST_BUFFER(ST_GEOGFROMTEXT('POINT(1 2)'), 50, 2)) AS eight_sides,
-  -- num_seg_quarter_circle=8, since 8 is the default
-  ST_NUMPOINTS(ST_BUFFER(ST_GEOGFROMTEXT('POINT(100 2)'), 50)) AS thirty_two_sides;
-
--- expected
-SELECT  St_Numpoints( St_Buffer( St_Geomfromtext( 'POINT(1 2)' )::GEOMETRY, 50, 2 )::GEOMETRY ) AS eight_sides
-        , St_Numpoints( St_Buffer( St_Geomfromtext( 'POINT(100 2)' )::GEOMETRY, 50 )::GEOMETRY ) AS thirty_two_sides
-;
-
--- result
-"eight_sides","thirty_two_sides"
-"9","33"
+-- results
+"km"
+"678.451551489"
 
 
 -- provided
-WITH Geographies AS
- (SELECT ST_GEOGFROMTEXT('POINT(1 1)') AS g UNION ALL
-  SELECT ST_GEOGFROMTEXT('LINESTRING(1 1, 2 2)') AS g UNION ALL
-  SELECT ST_GEOGFROMTEXT('MULTIPOINT(2 11, 4 12, 0 15, 1 9, 1 12)') AS g)
-SELECT
-  g AS input_geography,
-  ST_CONVEXHULL(g) AS convex_hull
-FROM Geographies;
+SELECT st_length(st_geogfromtext("LINESTRING(0 0, 0 1, 1 1, 1 0, 0 0)")) as geo;
 
 -- expected
-WITH Geographies AS
- (SELECT ST_GEOMFROMTEXT('POINT(1 1)') AS g UNION ALL
-  SELECT ST_GEOMFROMTEXT('LINESTRING(1 1, 2 2)') AS g UNION ALL
-  SELECT ST_GEOMFROMTEXT('MULTIPOINT(2 11, 4 12, 0 15, 1 9, 1 12)') AS g)
-SELECT
-  g AS input_geography,
-  ST_CONVEXHULL(g) AS convex_hull
-FROM Geographies;
+SELECT /* APPROXIMATION: ST_LENGTH SPHERE */ st_length_spheroid(st_flipcoordinates(st_geomfromtext('LINESTRING(0 0, 0 1, 1 1, 1 0, 0 0)'))) as geo;
 
--- result
-"input_geography","convex_hull"
-"POINT (1 1)","POINT (1 1)"
-"LINESTRING (1 1, 2 2)","LINESTRING (1 1, 2 2)"
-"MULTIPOINT (2 11, 4 12, 0 15, 1 9, 1 12)","POLYGON ((1 9, 0 15, 4 12, 1 9))"
+-- results
+"geo"
+"443770.917248302"
 
 
 -- provided
-SELECT
-  ST_GEOGPOINT(i, i) AS p,
-  ST_COVERS(ST_GEOGFROMTEXT('POLYGON((1 1, 20 1, 10 20, 1 1))'),
-            ST_GEOGPOINT(i, i)) AS `covers`
-FROM UNNEST([0, 1, 10]) AS i;
+SELECT st_maxdistance(st_geogfromtext('LINESTRING(0 0, 0 1, 1 1, 1 0, 0 0)'), st_geogfromtext('LINESTRING(10 0, 10 1, 11 1, 11 0, 10 0)')) max_distance;
 
 -- expected
-SELECT
-  ST_POINT(i, i) AS p,
-  ST_COVERS(ST_GEOMFROMTEXT('POLYGON((1 1, 20 1, 10 20, 1 1))'),
-            ST_POINT(i, i)) AS "covers"
-FROM (select UNNEST([0, 1, 10]) AS i) AS i;
+SELECT(SELECT MAX_DISTANCE FROM ST_MAXDISTANCE(ST_GEOMFROMTEXT('LINESTRING(0 0,0 1,1 1,1 0,0 0)'),ST_GEOMFROMTEXT('LINESTRING(10 0,10 1,11 1,11 0,10 0)')))AS MAX_DISTANCE;
 
 -- result
-"p","covers"
-"POINT (0 0)","false"
-"POINT (1 1)","true"
-"POINT (10 10)","true"
+"max_distance"
+"1228126.109277834"
 
 
 -- provided
-SELECT
-  ST_DIFFERENCE(
-      ST_GEOGFROMTEXT('POLYGON((0 0, 10 0, 10 10, 0 0))'),
-      ST_GEOGFROMTEXT('POLYGON((4 2, 6 2, 8 6, 4 2))')
-  ) diff;
-
+SELECT st_perimeter(st_geogfromtext('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')) as perimeter;
 
 -- expected
-SELECT
-  ST_DIFFERENCE(
-      ST_GEOMFROMTEXT('POLYGON((0 0, 10 0, 10 10, 0 0))'),
-      ST_GEOMFROMTEXT('POLYGON((4 2, 6 2, 8 6, 4 2))')
-  ) diff;
+SELECT ST_PERIMETER_SPHEROID(ST_FLIPCOORDINATES(ST_GEOMFROMTEXT('POLYGON((0 0,0 1,1 1,1 0,0 0))')))AS PERIMETER;
 
 -- result
-"diff"
-"POLYGON ((10 10, 10 0, 0 0, 10 10), (6 2, 8 6, 4 2, 6 2))"
+"perimeter"
+"443770.917248302"
 
 
 -- provided
-WITH example AS (
-  SELECT ST_GEOGFROMTEXT('POINT(0 0)') AS geography
-  UNION ALL
-  SELECT ST_GEOGFROMTEXT('MULTIPOINT(0 0, 1 1)') AS geography
-  UNION ALL
-  SELECT ST_GEOGFROMTEXT('GEOMETRYCOLLECTION(POINT(0 0), LINESTRING(1 2, 2 1))'))
-SELECT
-  geography AS original_geography,
-  ST_DUMP(geography) AS dumped_geographies
-FROM example;
-
+select ST_BUFFER(ST_GEOGFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'), 20) as buffer;
 
 -- expected
-WITH example AS (
-  SELECT ST_GEOMFROMTEXT('POINT(0 0)') AS geography
-  UNION ALL
-  SELECT ST_GEOMFROMTEXT('MULTIPOINT(0 0, 1 1)') AS geography
-  UNION ALL
-  SELECT ST_GEOMFROMTEXT('GEOMETRYCOLLECTION(POINT(0 0), LINESTRING(1 2, 2 1))'))
-SELECT
-  geography AS original_geography,
-  ST_DUMP(geography) AS dumped_geographies
-FROM example;
-
+SELECT ST_TRANSFORM(ST_BUFFER(ST_TRANSFORM(ST_GEOMFROMTEXT('POLYGON((0 0,0 1,1 1,1 0,0 0))')::GEOMETRY,'EPSG:4326','EPSG:6933'),20),'EPSG:6933','EPSG:4326')AS BUFFER;
 -- result
-"original_geography","dumped_geographies"
-"POINT (0 0)","[{geom=POINT (0 0), path=[]}]"
-"MULTIPOINT (0 0, 1 1)","[{geom=POINT (0 0), path=[1]}, {geom=POINT (1 1), path=[2]}]"
-"GEOMETRYCOLLECTION (POINT (0 0), LINESTRING (1 2, 2 1))","[{geom=POINT (0 0), path=[1]}, {geom=LINESTRING (1 2, 2 1), path=[2]}]"
+"buffer"
+"POLYGON ((0 -0.000207283356224, 0.999999998883127 -0.000207283356224, 1.00003058824032 -0.000203300464657, 1.000060002065931 -0.000191504850246, 1.000087110003095 -0.000172349811837, 1.000110870308919 -0.000146571466813, 1.000130369888099 -0.000115160462519, 1.00014485938266 -0.000079323906232, 1.000153781969387 -0.000040438976714, 1.00015679475823 0, 1.00015679475823 1, 1.000153781969387 1.000040438976714, 1.00014485938266 1.000079323906232, 1.000130369888099 1.000115160462518, 1.000110870308919 1.000146571466813, 1.000087110003095 1.000172349811836, 1.000060002065931 1.000191504850246, 1.00003058824032 1.000203300464657, 0.999999998883127 1.000207283356224, 0 1.000207283356224, -0.000030584822872 1.000203300464657, -0.000059994288153 1.000191504850246, -0.000087098206586 1.000172349811836, -0.000110854989785 1.000146571466813, -0.000130351677895 1.000115160462518, -0.000144839024125 1.000079323906232, -0.000153760287885 1.000040438976714, -0.000156772630011 1, -0.000156772630011 0, -0.000153760287885 -0.000040438976714, -0.000144839024125 -0.000079323906232, -0.000130351677895 -0.000115160462519, -0.000110854989785 -0.000146571466813, -0.000087098206586 -0.000172349811837, -0.000059994288153 -0.000191504850246, -0.000030584822872 -0.000203300464657, 0 -0.000207283356224))"
 
 
 -- provided
-SELECT ST_ENDPOINT(ST_GEOGFROMTEXT('LINESTRING(1 1, 2 1, 3 2, 3 3)')) `last`;
+select st_asbinary(ST_GEOGFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))')) as wkb;
 
 -- expected
-SELECT ST_ENDPOINT(ST_GEOMFROMTEXT('LINESTRING(1 1, 2 1, 3 2, 3 3)')) "last";
+SELECT ST_ASWKB(ST_GEOMFROMTEXT('POLYGON((0 0,0 1,1 1,1 0,0 0))')::GEOMETRY) AS WKB;
 
 -- result
-"last"
-"POINT (3 3)"
+"WKB"
+"POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0))"
 
 
 -- provided
-WITH data AS (
-  SELECT 1 id, ST_GEOGFROMTEXT('POLYGON((-125 48, -124 46, -117 46, -117 49, -125 48))') g
-  UNION ALL
-  SELECT 2 id, ST_GEOGFROMTEXT('POLYGON((172 53, -130 55, -141 70, 172 53))') g
-  UNION ALL
-  SELECT 3 id, ST_GEOGFROMTEXT('POINT EMPTY') g
-  UNION ALL
-  SELECT 4 id, ST_GEOGFROMTEXT('POLYGON((172 53, -141 70, -130 55, 172 53))', oriented => TRUE)
-)
-SELECT id, ST_BOUNDINGBOX(g) AS box
-FROM data;
+select ST_CLOSESTPOINT(ST_GEOGFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'), ST_GEOGFROMTEXT('POLYGON((2 2, 2 3, 3 3, 3 2, 2 2))')) as closest_point
 
 -- expected
-WITH data AS (
-  SELECT 1 id, ST_GEOMFROMTEXT('POLYGON((-125 48, -124 46, -117 46, -117 49, -125 48))') g
-  UNION ALL
-  SELECT 2 id, ST_GEOMFROMTEXT('POLYGON((172 53, -130 55, -141 70, 172 53))') g
-  UNION ALL
-  SELECT 3 id, ST_GEOMFROMTEXT('POINT EMPTY') g
-  UNION ALL
-  SELECT 4 id, ST_GEOMFROMTEXT('POLYGON((172 53, -141 70, -130 55, 172 53))', oriented => TRUE)
-)
-SELECT id, ST_EXTENT(g) AS box
-FROM data;
+select ST_STARTPOINT(ST_ShortestLine(ST_GEOMFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'), ST_GEOMFROMTEXT('POLYGON((2 2, 2 3, 3 3, 3 2, 2 2))'))) as closest_point
 
 -- result
-"id","box"
-"1","BOX(-125 46, -117 49)"
-"2","BOX(-141 53, 172 70)"
-"3",""
-"4","BOX(-141 53, 172 70)"
-
-
--- provided
-WITH data AS (
-  SELECT 1 id, ST_GEOMFROMTEXT('POLYGON((-125 48, -124 46, -117 46, -117 49, -125 48))') g
-  UNION ALL
-  SELECT 2 id, ST_GEOMFROMTEXT('POLYGON((172 53, -130 55, -141 70, 172 53))') g
-  UNION ALL
-  SELECT 3 id, ST_GEOMFROMTEXT('POINT EMPTY') g
-)
-SELECT ST_EXTENT(g) AS box
-FROM data;
-
--- expected
-WITH data AS (
-  SELECT 1 id, ST_GEOMFROMTEXT('POLYGON((-125 48, -124 46, -117 46, -117 49, -125 48))') g
-  UNION ALL
-  SELECT 2 id, ST_GEOMFROMTEXT('POLYGON((172 53, -130 55, -141 70, 172 53))') g
-  UNION ALL
-  SELECT 3 id, ST_GEOMFROMTEXT('POINT EMPTY') g
-)
-SELECT ST_Extent_Agg(g) AS box
-FROM data;
-
--- result
-"box"
-"POLYGON ((-141 46, -141 70, 172 70, 172 46, -141 46))"
-
-
--- provided
-WITH geo as
- (SELECT ST_GEOGFROMTEXT('POLYGON((0 0, 1 4, 2 2, 0 0))') AS g UNION ALL
-  SELECT ST_GEOGFROMTEXT('POLYGON((1 1, 1 10, 5 10, 5 1, 1 1),
-                                  (2 2, 3 4, 2 4, 2 2))') as g)
-SELECT ST_EXTERIORRING(g) AS ring FROM geo;
-
--- expected
-WITH geo as
- (SELECT ST_GEOMFROMTEXT('POLYGON((0 0, 1 4, 2 2, 0 0))') AS g UNION ALL
-  SELECT ST_GEOMFROMTEXT('POLYGON((1 1, 1 10, 5 10, 5 1, 1 1),
-                                  (2 2, 3 4, 2 4, 2 2))') as g)
-SELECT ST_EXTERIORRING(g) AS ring FROM geo;
-
--- result
-"ring"
-"LINESTRING (0 0, 1 4, 2 2, 0 0)"
-"LINESTRING (1 1, 1 10, 5 10, 5 1, 1 1)"
-
-
--- provided
-WITH example AS(
-  SELECT ST_GEOGFROMTEXT('POINT(0 1)') AS geography
-  UNION ALL
-  SELECT ST_GEOGFROMTEXT('MULTILINESTRING((2 2, 3 4), (5 6, 7 7))')
-  UNION ALL
-  SELECT ST_GEOGFROMTEXT('GEOMETRYCOLLECTION(MULTIPOINT(-1 2, 0 12), LINESTRING(-2 4, 0 6))')
-  UNION ALL
-  SELECT ST_GEOGFROMTEXT('GEOMETRYCOLLECTION EMPTY'))
-SELECT
-  geography AS WKT,
-  ST_GEOMETRYTYPE(geography) AS geometry_type_name
-FROM example;
-
--- expected
-WITH example AS(
-  SELECT ST_GEOMFROMTEXT('POINT(0 1)') AS geography
-  UNION ALL
-  SELECT ST_GEOMFROMTEXT('MULTILINESTRING((2 2, 3 4), (5 6, 7 7))')
-  UNION ALL
-  SELECT ST_GEOMFROMTEXT('GEOMETRYCOLLECTION(MULTIPOINT(-1 2, 0 12), LINESTRING(-2 4, 0 6))')
-  UNION ALL
-  SELECT ST_GEOMFROMTEXT('GEOMETRYCOLLECTION EMPTY'))
-SELECT
-  geography AS WKT,
-  ST_GEOMETRYTYPE(geography) AS geometry_type_name
-FROM example;
-
--- result
-"WKT","geometry_type_name"
-"POINT (0 1)","POINT"
-"MULTILINESTRING ((2 2, 3 4), (5 6, 7 7))","MULTILINESTRING"
-"GEOMETRYCOLLECTION (MULTIPOINT (-1 2, 0 12), LINESTRING (-2 4, 0 6))","GEOMETRYCOLLECTION"
-"GEOMETRYCOLLECTION EMPTY","GEOMETRYCOLLECTION"
-
-
--- provided
-WITH example AS(
-  SELECT ST_GEOGFROMTEXT('POINT(5 0)') AS geography
-  UNION ALL
-  SELECT ST_GEOGFROMTEXT('MULTIPOINT(0 1, 4 3, 2 6)') AS geography
-  UNION ALL
-  SELECT ST_GEOGFROMTEXT('GEOMETRYCOLLECTION(POINT(0 0), LINESTRING(1 2, 2 1))') AS geography
-  UNION ALL
-  SELECT ST_GEOGFROMTEXT('GEOMETRYCOLLECTION EMPTY'))
-SELECT
-  geography,
-  ST_NUMGEOMETRIES(geography) AS num_geometries
-FROM example;
-
--- expected
-WITH example AS(
-  SELECT ST_GEOMFROMTEXT('POINT(5 0)') AS geography
-  UNION ALL
-  SELECT ST_GEOMFROMTEXT('MULTIPOINT(0 1, 4 3, 2 6)') AS geography
-  UNION ALL
-  SELECT ST_GEOMFROMTEXT('GEOMETRYCOLLECTION(POINT(0 0), LINESTRING(1 2, 2 1))') AS geography
-  UNION ALL
-  SELECT ST_GEOMFROMTEXT('GEOMETRYCOLLECTION EMPTY'))
-SELECT
-  geography,
-  ST_NUMGEOMETRIES(geography) AS num_geometries
-FROM example;
-
--- result
-"geography","num_geometries"
-"POINT (5 0)","1"
-"MULTIPOINT (0 1, 4 3, 2 6)","3"
-"GEOMETRYCOLLECTION (POINT (0 0), LINESTRING (1 2, 2 1))","2"
-"GEOMETRYCOLLECTION EMPTY","0"
-
-
--- provided
-WITH linestring AS (
-    SELECT ST_GEOGFROMTEXT('LINESTRING(1 1, 2 1, 3 2, 3 3)') g
-)
-SELECT ST_POINTN(g, 1) AS first, ST_POINTN(g, -1) AS last,
-    ST_POINTN(g, 2) AS second, ST_POINTN(g, -2) AS second_to_last
-FROM linestring;
-
--- expected
-WITH linestring AS (
-    SELECT ST_GEOMFROMTEXT('LINESTRING(1 1, 2 1, 3 2, 3 3)') g
-)
-SELECT ST_POINTN(g, 1) AS first, ST_POINTN(g, -1) AS last,
-    ST_POINTN(g, 2) AS second, ST_POINTN(g, -2) AS second_to_last
-FROM linestring;
-
--- result
-"first","last","second","second_to_last"
-"POINT (1 1)","POINT (3 3)","POINT (2 1)","POINT (3 2)"
-
-
--- provided
-WITH example AS
- (SELECT ST_GEOGFROMTEXT('LINESTRING(0 0, 0.05 0, 0.1 0, 0.15 0, 2 0)') AS line)
-SELECT
-   line AS original_line,
-   ST_SIMPLIFY(line, 1) AS simplified_line
-FROM example;
-
--- expected
-WITH example AS
- (SELECT ST_GEOMFROMTEXT('LINESTRING(0 0, 0.05 0, 0.1 0, 0.15 0, 2 0)') AS line)
-SELECT
-   line AS original_line,
-   ST_SIMPLIFY(line, 1) AS simplified_line
-FROM example;
-
--- result
-"original_line","simplified_line"
-"LINESTRING (0 0, 0.05 0, 0.1 0, 0.15 0, 2 0)","LINESTRING (0 0, 2 0)"
-
-
--- provided
-SELECT ST_STARTPOINT(ST_GEOGFROMTEXT('LINESTRING(1 1, 2 1, 3 2, 3 3)')) `first`;
-
--- expected
-SELECT ST_STARTPOINT(ST_GEOMFROMTEXT('LINESTRING(1 1, 2 1, 3 2, 3 3)')) "first";
-
--- result
-"first"
+"closest_point"
 "POINT (1 1)"
 
 
 -- provided
-SELECT ST_UNION(
-  ST_GEOGFROMTEXT('LINESTRING(-122.12 47.67, -122.19 47.69)'),
-  ST_GEOGFROMTEXT('LINESTRING(-122.12 47.67, -100.19 47.69)')
-) AS results;
+select 'in' AS label, st_dwithin(ST_GEOGFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'),ST_GEOGFROMTEXT('POLYGON((2 2, 2 3, 3 3, 3 2, 2 2))'), 157226) AS within_distance
+UNION ALL
+select 'out' AS label, st_dwithin(ST_GEOGFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'),ST_GEOGFROMTEXT('POLYGON((2 2, 2 3, 3 3, 3 2, 2 2))'), 157225) AS within_distance
+;
 
 -- expected
-SELECT ST_UNION(
-  ST_GEOMFROMTEXT('LINESTRING(-122.12 47.67, -122.19 47.69)'),
-  ST_GEOMFROMTEXT('LINESTRING(-122.12 47.67, -100.19 47.69)')
-) AS results;
+select 'in' AS label, st_dwithin(ST_GEOMFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'),ST_GEOMFROMTEXT('POLYGON((2 2, 2 3, 3 3, 3 2, 2 2))'), 157226) AS within_distance
+UNION ALL
+select 'out' AS label, st_dwithin(ST_GEOMFROMTEXT('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'),ST_GEOMFROMTEXT('POLYGON((2 2, 2 3, 3 3, 3 2, 2 2))'), 157225) AS within_distance
+;
 
--- result
-"results"
-"MULTILINESTRING ((-122.12 47.67, -122.19 47.69), (-122.12 47.67, -100.19 47.69))"
-
-
--- provided
-SELECT ST_UNION_AGG(items) AS results
-FROM UNNEST([
-  ST_GEOGFROMTEXT('LINESTRING(-122.12 47.67, -122.19 47.69)'),
-  ST_GEOGFROMTEXT('LINESTRING(-122.12 47.67, -100.19 47.69)'),
-  ST_GEOGFROMTEXT('LINESTRING(-122.12 47.67, -122.19 47.69)')]) as items;
-
--- expected
-SELECT ST_UNION_AGG(items) AS results
-FROM (SELECT UNNEST([
-  ST_GEOMFROMTEXT('LINESTRING(-122.12 47.67, -122.19 47.69)'),
-  ST_GEOMFROMTEXT('LINESTRING(-122.12 47.67, -100.19 47.69)'),
-  ST_GEOMFROMTEXT('LINESTRING(-122.12 47.67, -122.19 47.69)')]) as items) as items;
-
--- result
-"results"
-"MULTILINESTRING ((-122.12 47.67, -122.19 47.69), (-122.12 47.67, -100.19 47.69))"
-
-
--- provided
-WITH points AS
-   (SELECT ST_GEOGPOINT(i, i + 1) AS p FROM UNNEST([0, 5, 12]) AS i)
- SELECT
-   p,
-   ST_X(p) as longitude,
-   ST_Y(p) as latitude
-FROM points;
-
-
--- expected
-WITH points AS
-   (SELECT ST_POINT(i, i + 1) AS p FROM (Select UNNEST([0, 5, 12]) AS i) AS i)
- SELECT
-   p,
-   ST_X(p) as longitude,
-   ST_Y(p) as latitude
-FROM points;
-
--- result
-"p","longitude","latitude"
-"POINT (0 1)","0.0","1.0"
-"POINT (5 6)","5.0","6.0"
-"POINT (12 13)","12.0","13.0"
+-- results
+"label","within_distance"
+"in","true"
+"out","false"

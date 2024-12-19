@@ -59,6 +59,7 @@ import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -117,9 +118,13 @@ public class JSQLTranspilerTest {
 
     public String expectedResult = null;
 
-    SQLTest(JSQLTranspiler.Dialect inputDialect, JSQLTranspiler.Dialect outputDialect) {
+    public Map<String, Object> parameters = new HashMap<>();
+
+    SQLTest(JSQLTranspiler.Dialect inputDialect, JSQLTranspiler.Dialect outputDialect,
+        Map<String, Object> parameters) {
       this.inputDialect = inputDialect;
       this.outputDialect = outputDialect;
+      this.parameters.putAll(parameters);
     }
 
     @Override
@@ -167,7 +172,13 @@ public class JSQLTranspilerTest {
 
       try (FileReader fileReader = new FileReader(file);
           BufferedReader bufferedReader = new BufferedReader(fileReader)) {
-        SQLTest test = new SQLTest(inputDialect, outputDialect);
+
+        JSQLExpressionTranspiler.GeoMode geoMode =
+            file.getName().toLowerCase().contains("geography")
+                ? JSQLExpressionTranspiler.GeoMode.GEOGRAPHY
+                : JSQLExpressionTranspiler.GeoMode.GEOMETRY;
+
+        SQLTest test = new SQLTest(inputDialect, outputDialect, Map.of("GEO_MODE", geoMode.name()));
         int r = 0;
         while ((line = bufferedReader.readLine()) != null) {
           r++;
@@ -210,7 +221,11 @@ public class JSQLTranspilerTest {
                 }
                 tests.add(test);
 
-                test = new SQLTest(inputDialect, outputDialect);
+                geoMode = file.getName().toLowerCase().contains("geography")
+                    ? JSQLExpressionTranspiler.GeoMode.GEOGRAPHY
+                    : JSQLExpressionTranspiler.GeoMode.GEOMETRY;
+
+                test = new SQLTest(inputDialect, outputDialect, Map.of("GEO_MODE", geoMode.name()));
                 test.line = r;
               }
 
@@ -275,8 +290,6 @@ public class JSQLTranspilerTest {
     connDuck = DriverManager.getConnection("jdbc:duckdb:" + fileDuckDB.getAbsolutePath(), info);
 
     if (!isInitialised) {
-      JSQLTranspiler.createMacros(connDuck);
-
       LOGGER.info("Preparing JSON Extension");
       try (Statement st = connDuck.createStatement()) {
         for (String s : new String[] {"INSTALL json;", "LOAD json;"}) {
@@ -306,6 +319,8 @@ public class JSQLTranspilerTest {
       } catch (Exception ex) {
         LOGGER.log(Level.FINE, "Failed to INSTALL/LOAD the SPATIAL extension", ex);
       }
+
+      JSQLTranspiler.createMacros(connDuck);
 
       String sqlStr = IOUtils.resourceToString(
           JSQLTranspilerTest.class.getCanonicalName().replaceAll("\\.", "/") + "_DDL.sql",

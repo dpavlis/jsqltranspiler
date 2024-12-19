@@ -23,6 +23,7 @@ import net.sf.jsqlparser.expression.BinaryExpression;
 import net.sf.jsqlparser.expression.CaseExpression;
 import net.sf.jsqlparser.expression.CastExpression;
 import net.sf.jsqlparser.expression.DateTimeLiteralExpression;
+import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.ExpressionVisitorAdapter;
 import net.sf.jsqlparser.expression.ExtractExpression;
@@ -46,10 +47,12 @@ import net.sf.jsqlparser.expression.WhenClause;
 import net.sf.jsqlparser.expression.WindowDefinition;
 import net.sf.jsqlparser.expression.operators.arithmetic.Addition;
 import net.sf.jsqlparser.expression.operators.arithmetic.Concat;
+import net.sf.jsqlparser.expression.operators.arithmetic.Division;
 import net.sf.jsqlparser.expression.operators.arithmetic.Multiplication;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.expression.operators.relational.InExpression;
+import net.sf.jsqlparser.expression.operators.relational.IsNullExpression;
 import net.sf.jsqlparser.expression.operators.relational.LikeExpression;
 import net.sf.jsqlparser.expression.operators.relational.MinorThanEquals;
 import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
@@ -62,6 +65,7 @@ import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectItem;
+import net.sf.jsqlparser.statement.select.TableFunction;
 import net.sf.jsqlparser.util.deparser.ExpressionDeParser;
 import net.sf.jsqlparser.util.deparser.SelectDeParser;
 
@@ -86,7 +90,7 @@ import java.util.regex.Pattern;
 public class JSQLExpressionTranspiler extends ExpressionDeParser {
   final private Pattern ARRAY_COLUMN_TYPE_PATTERN = Pattern.compile("ARRAY<(.+)>");
 
-  public final HashMap<String, Object> parameters = new LinkedHashMap<>();
+  public final HashMap<String, Object> parameterMap = new LinkedHashMap<>();
 
   public JSQLExpressionTranspiler(SelectDeParser deParser, StringBuilder buffer) {
     super(deParser, buffer);
@@ -122,6 +126,10 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
 
   };
 
+  enum GeoMode {
+    GEOGRAPHY, GEOMETRY;
+  }
+
   enum TranspiledFunction {
     //@formatter:off
     CURRENT_DATE, CURRENT_DATETIME, CURRENT_TIME, CURRENT_TIMESTAMP, DATE, DATETIME, TIME, TIMESTAMP, DATE_ADD
@@ -140,7 +148,10 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     , FLOAT64, LAX_FLOAT64, INT64, LAX_INT64, LAX_STRING, JSON_QUERY, JSON_VALUE, JSON_QUERY_ARRAY, JSON_VALUE_ARRAY
     , JSON_EXTRACT, JSON_EXTRACT_ARRAY, JSON_EXTRACT_SCALAR, JSON_EXTRACT_STRING_ARRAY, PARSE_JSON, TO_JSON, TO_JSON_STRING, NVL
     , UNNEST, ST_GEOGPOINT, ST_GEOGFROMTEXT, ST_GEOGFROMGEOJSON, ST_GEOGFROMWKB, ST_ASBINARY, ST_ASGEOJSON, ST_ASTEXT
-    , ST_BUFFER, ST_NUMPOINTS, ST_DISTANCE, ST_BOUNDINGBOX, ST_EXTENT, ST_PERIMETER;
+    , ST_BUFFER, ST_NUMPOINTS, ST_DISTANCE, ST_MAXDISTANCE, ST_BOUNDINGBOX, ST_EXTENT, ST_PERIMETER, ST_LENGTH, ST_CLOSESTPOINT
+    // GEO_MODE
+    , ST_AREA
+    ;
     //@formatter:on
 
 
@@ -163,11 +174,15 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
   enum UnsupportedFunction {
     //@formatter:off
     ASINH, ACOSH, COSH, SINH, COTH, COSINE_DISTANCE, CSC, CSCH, EUCLIDEAN_DISTANCE, SEC, SECH, APPROX_QUANTILES
-    , APPROX_TOP_COUNT, APPROX_TOP_SUM, SEARCH, VECTOR_SEARCH, APPENDS, EXTERNAL_OBJECT_TRANSFORM, GAP_FILL
+    , APPROX_TOP_COUNT, APPROX_TOP_SUM, SEARCH, VECTOR_SEARCH
     , S2_CELLIDFROMPOINT, S2_COVERINGCELLIDS, ST_ANGLE, ST_AZIMUTH, ST_BUFFERWITHTOLERANCE, ST_CENTROID_AGG
-    , ST_CLOSESTPOINT, ST_CLUSTERDBSCAN, ST_GEOGFROM, ST_GEOGPOINTFROMGEOHASH, ST_GEOHASH, ST_HAUSDORFFDISTANCE
+    , ST_CLUSTERDBSCAN, ST_GEOGFROM, ST_GEOGPOINTFROMGEOHASH, ST_GEOHASH, ST_HAUSDORFFDISTANCE
     , ST_INTERIORRINGS, ST_INTERSECTSBOX, ST_ISCOLLECTION, ST_LINEINTERPOLATEPOINT, ST_LINELOCATEPOINT, ST_LINESUBSTRING
-    , ST_MAKEPOLYGONORIENTED, ST_SNAPTOGRID;
+    , ST_MAKEPOLYGONORIENTED, ST_SNAPTOGRID
+    // time series
+    // https://cloud.google.com/bigquery/docs/reference/standard-sql/table-functions-built-in#appends
+    , APPENDS, CHANGES, EXTERNAL_OBJECT_TRANSFORM, GAP_FILL, RANGE_SESSIONIZE
+    ;
     //@formatter:on
 
     @SuppressWarnings({"PMD.EmptyCatchBlock"})
@@ -487,6 +502,14 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     boolean hasSafePrefix = false;
     int paramCount = hasParameters ? function.getParameters().size() : 0;
 
+    GeoMode geoMode = GeoMode.GEOMETRY;
+    if ("GEOGRAPHY".equalsIgnoreCase(String.valueOf(parameterMap.get("GEO_MODE")))) {
+      geoMode = GeoMode.GEOGRAPHY;
+    } else if ("GEOGRAPHY"
+        .equalsIgnoreCase(String.valueOf(System.getProperties().get("GEO_MODE")))) {
+      geoMode = GeoMode.GEOGRAPHY;
+    }
+
     if (UnsupportedFunction.from(function) != null) {
       throw new RuntimeException(
           "Unsupported: " + functionName + " is not supported by DuckDB (yet).");
@@ -518,6 +541,19 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     if (f != null) {
       switch (f) {
         case CURRENT_DATE:
+          if (parameters != null) {
+            switch (parameters.size()) {
+              case 0:
+                rewrittenExpression = new CastExpression("Cast", new Column(functionName), "DATE");
+                break;
+              case 1:
+                // CURRENT_DATE(timezone)
+                rewrittenExpression = new CastExpression("Cast",
+                    new TimezoneExpression(new Column(functionName), parameters.get(0)), "DATE");
+                break;
+            }
+          }
+          break;
         case CURRENT_DATETIME:
         case CURRENT_TIME:
         case CURRENT_TIMESTAMP:
@@ -527,7 +563,6 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
                 rewrittenExpression = new Column(functionName);
                 break;
               case 1:
-                // CURRENT_DATE(timezone)
                 // CURRENT_DATETIME(timezone)
                 rewrittenExpression =
                     new TimezoneExpression(new Column(functionName), parameters.get(0));
@@ -890,8 +925,15 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
             }
           }
           break;
-        case SAFE_ADD:
         case SAFE_DIVIDE:
+          Expression p0 = parameters.get(0);
+          Expression p1 = parameters.get(1);
+          Expression orExpression = BinaryExpression.or(new EqualsTo(p1, new DoubleValue(0)),
+              new IsNullExpression(p1), new IsNullExpression(p0));
+          rewrittenExpression = new Function("If", orExpression, new NullValue(),
+              new Division(parameters.get(0), parameters.get(1)));
+          break;
+        case SAFE_ADD:
         case SAFE_MULTIPLY:
         case SAFE_SUBTRACT:
           warning("SAFE variant not supported");
@@ -966,13 +1008,13 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
           if (parameters != null) {
             switch (parameters.size()) {
               case 3:
-                Expression p1 = parameters.get(0);
-                Expression p2 = parameters.get(1);
+                p0 = parameters.get(0);
+                p1 = parameters.get(1);
 
                 // turn it into a Lambda replacing the NULL values with 3rd parameter
-                p1 = new Function("List_Transform", p1, new LambdaExpression("x",
+                p0 = new Function("List_Transform", p0, new LambdaExpression("x",
                     new Function("Coalesce", new Column("x"), parameters.get(2))));
-                function.setParameters(p1, p2);
+                function.setParameters(p0, p1);
             }
           }
           break;
@@ -1206,19 +1248,19 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
            */
           switch (paramCount) {
             case 2:
-              Expression p1 = parameters.get(1);
+              p1 = parameters.get(1);
               if (p1 instanceof StringValue) {
                 String jsonPath = ((StringValue) parameters.get(1)).getValue();
                 if (jsonPath.trim().equalsIgnoreCase("$")) {
                   function.setParameters(parameters.get(0), new StringValue("$"));
                 } else {
                   jsonPath = jsonPath.replaceAll("\\$\\[([^]]+)]", "\\$.$1");
-                  jsonPath = jsonPath.replaceAll("\\[\"(.*?)\"\\]", "\"$1\"");
+                  jsonPath = jsonPath.replaceAll("\\[\"(.*?)\"]", "\"$1\"");
                   p1 = new StringValue(jsonPath);
                 }
               }
 
-              ParenthesedExpressionList types = new ParenthesedExpressionList(
+              ParenthesedExpressionList<?> types = new ParenthesedExpressionList<>(
                   new StringValue("VARCHAR"), new StringValue("DOUBLE"), new StringValue("BOOLEAN"),
                   new StringValue("UBIGINT"), new StringValue("BIGINT"));
               rewrittenExpression =
@@ -1286,8 +1328,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
           break;
         case ST_ASBINARY:
           // SELECT ST_AsWKB('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'::GEOMETRY)::BLOB;
-          rewrittenExpression = new CastExpression(
-              new Function("ST_AsWKB", new CastExpression(parameters.get(0), "GEOMETRY")), "BLOB");
+          rewrittenExpression =
+              new Function("ST_AsWKB", new CastExpression(parameters.get(0), "GEOMETRY"));
           break;
         case ST_ASGEOJSON:
           // ST_AsGeoJSON('POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))'::GEOMETRY);
@@ -1303,12 +1345,41 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
           }
           switch (paramCount) {
             case 2:
-              function.setParameters(new CastExpression(parameters.get(0), "GEOMETRY"),
-                  parameters.get(1));
+              switch (geoMode) {
+                case GEOMETRY:
+                  function.setParameters(new CastExpression(parameters.get(0), "GEOMETRY"),
+                      parameters.get(1));
+                  break;
+                case GEOGRAPHY:
+                  // SELECT ST_TRANSFORM(ST_BUFFER(ST_TRANSFORM(ST_GEOMFROMTEXT('POLYGON((0 0, 0 1,
+                  // 1 1, 1 0, 0 0))'), 'EPSG:4326', 'EPSG:6933'), 20), 'EPSG:6933', 'EPSG:4326') as
+                  // buffer
+                  rewrittenExpression = new Function("ST_TRANSFORM",
+                      new Function("ST_Buffer$$",
+                          new Function("ST_TRANSFORM",
+                              new CastExpression(parameters.get(0), "GEOMETRY"),
+                              new StringValue("EPSG:4326"), new StringValue("EPSG:6933")),
+                          parameters.get(1)),
+                      new StringValue("EPSG:6933"), new StringValue("EPSG:4326"));
+                  break;
+              }
               break;
             case 3:
-              function.setParameters(new CastExpression(parameters.get(0), "GEOMETRY"),
-                  parameters.get(1), parameters.get(2));
+              switch (geoMode) {
+                case GEOMETRY:
+                  function.setParameters(new CastExpression(parameters.get(0), "GEOMETRY"),
+                      parameters.get(1), parameters.get(2));
+                  break;
+                case GEOGRAPHY:
+                  rewrittenExpression = new Function("ST_TRANSFORM",
+                      new Function("ST_Buffer$$",
+                          new Function("ST_TRANSFORM",
+                              new CastExpression(parameters.get(0), "GEOMETRY"),
+                              new StringValue("EPSG:4326"), new StringValue("EPSG:6933")),
+                          parameters.get(1), parameters.get(2)),
+                      new StringValue("EPSG:6933"), new StringValue("EPSG:4326"));
+                  break;
+              }
               break;
           }
           break;
@@ -1316,10 +1387,64 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
           function.setName("ST_NUMPOINTS");
           function.setParameters(new CastExpression(parameters.get(0), "GEOMETRY"));
           break;
-        case ST_DISTANCE:
-          if (paramCount > 2) {
-            warning("USE_SPHEROID is not supported.");
+        case ST_LENGTH:
+          switch (paramCount) {
+            case 1:
+              switch (geoMode) {
+                case GEOMETRY:
+                  function.setName("St_Length");
+                  break;
+                case GEOGRAPHY:
+                  function.setName("ST_Length_Spheroid");
+                  break;
+              }
+              function.setParameters(new Function("ST_FLIPCOORDINATES", parameters.get(0)));
+              break;
+            case 2:
+              function.setName("ST_Length_Spheroid");
+              function.setParameters(new Function("ST_FLIPCOORDINATES", parameters.get(0)));
+              break;
           }
+          break;
+        case ST_CLOSESTPOINT:
+          if (paramCount == 2) {
+            rewrittenExpression = new Function("ST_StartPoint",
+                new Function("ST_ShortestLine", parameters.get(0), parameters.get(1)));
+          }
+          break;
+        case ST_DISTANCE:
+          switch (paramCount) {
+            case 2:
+              switch (geoMode) {
+                case GEOMETRY:
+                  function.setName("ST_Distance");
+                  break;
+                case GEOGRAPHY:
+                  function.setName("ST_Distance_Sphere");
+                  break;
+              }
+              function.setParameters(new Function("ST_FLIPCOORDINATES", parameters.get(0)),
+                  new Function("ST_FLIPCOORDINATES", parameters.get(1)));
+              break;
+            case 3:
+              rewrittenExpression = new Function("If", parameters.get(2),
+                  new Function("ST_Distance_Spheroid",
+                      new Function("ST_FLIPCOORDINATES", parameters.get(0)),
+                      new Function("ST_FLIPCOORDINATES", parameters.get(1))),
+                  new Function("ST_Distance_Sphere",
+                      new Function("ST_FLIPCOORDINATES", parameters.get(0)),
+                      new Function("ST_FLIPCOORDINATES", parameters.get(1))));
+              break;
+          }
+          break;
+        case ST_MAXDISTANCE:
+          // SELECT ( select max_distance from ST_MaxDistance(st_geomfromtext('LINESTRING(0 0, 0 1,
+          // 1 1, 1 0, 0 0)'), st_geomfromtext('LINESTRING(10 0, 10 1, 11 1, 11 0, 10 0)')) )
+          // max_distance;
+          TableFunction tableFunction =
+              new TableFunction("ST_MaxDistance$$", parameters.get(0), parameters.get(1));
+          rewrittenExpression =
+              new ParenthesedSelect(List.of(new Column("max_distance")), tableFunction);
           break;
         case ST_BOUNDINGBOX:
           // not aggregated version of EXTEND
@@ -1331,10 +1456,32 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
           function.setName("ST_Extent_Agg");
           break;
         case ST_PERIMETER:
-          if (paramCount > 3) {
-            warning("USE_SPHEROID is not supported.");
+          switch (paramCount) {
+            case 1:
+              switch (geoMode) {
+                case GEOMETRY:
+                  function.setName("St_Perimeter");
+                  break;
+                case GEOGRAPHY:
+                  function.setName("ST_Perimeter_Spheroid");
+                  break;
+              }
+              function.setParameters(new Function("ST_FLIPCOORDINATES", parameters.get(0)));
+              break;
+            case 2:
+              function.setName("ST_Perimeter_Spheroid");
+              function.setParameters(new Function("ST_FLIPCOORDINATES", parameters.get(0)));
+              break;
           }
           break;
+        case ST_AREA:
+          switch (geoMode) {
+            case GEOMETRY:
+              break;
+            case GEOGRAPHY:
+              function.setName("ST_Area_Spheroid");
+              break;
+          }
       }
     }
     if (rewrittenExpression == null) {
@@ -2620,9 +2767,9 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
   public <S> StringBuilder visit(TimeKeyExpression expression, S context) {
     String value = expression.getStringValue().toUpperCase().replaceAll("[()]", "");
 
-    if (parameters.containsKey(value)) {
+    if (parameterMap.containsKey(value)) {
       // @todo: Cast Date/Time types
-      castDateTime(parameters.get(value).toString()).accept(this, null);
+      castDateTime(parameterMap.get(value).toString()).accept(this, null);
     } else if (System.getProperties().containsKey(value)) {
       castDateTime(System.getProperty(value)).accept(this, null);
     } else if (value.equals("CURRENT_TIMEZONE")) {
