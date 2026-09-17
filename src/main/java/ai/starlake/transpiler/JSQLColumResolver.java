@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,6 +17,7 @@ import ai.starlake.transpiler.schema.JdbcColumn;
 import ai.starlake.transpiler.schema.JdbcMetaData;
 import ai.starlake.transpiler.schema.JdbcResultSetMetaData;
 import ai.starlake.transpiler.schema.JdbcTable;
+import ai.starlake.transpiler.schema.treebuilder.FlattenedColumnBuilder;
 import ai.starlake.transpiler.schema.treebuilder.TreeBuilder;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Alias;
@@ -27,7 +25,12 @@ import net.sf.jsqlparser.parser.CCJSqlParser;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
+import net.sf.jsqlparser.statement.ParenthesedStatement;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.delete.ParenthesedDelete;
+import net.sf.jsqlparser.statement.imprt.Import;
+import net.sf.jsqlparser.statement.insert.ParenthesedInsert;
+import net.sf.jsqlparser.statement.piped.FromQuery;
 import net.sf.jsqlparser.statement.select.AllColumns;
 import net.sf.jsqlparser.statement.select.AllTableColumns;
 import net.sf.jsqlparser.statement.select.FromItem;
@@ -36,6 +39,7 @@ import net.sf.jsqlparser.statement.select.Join;
 import net.sf.jsqlparser.statement.select.LateralSubSelect;
 import net.sf.jsqlparser.statement.select.ParenthesedFromItem;
 import net.sf.jsqlparser.statement.select.ParenthesedSelect;
+import net.sf.jsqlparser.statement.select.PivotQuery;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectItem;
@@ -45,6 +49,7 @@ import net.sf.jsqlparser.statement.select.TableFunction;
 import net.sf.jsqlparser.statement.select.TableStatement;
 import net.sf.jsqlparser.statement.select.Values;
 import net.sf.jsqlparser.statement.select.WithItem;
+import net.sf.jsqlparser.statement.update.ParenthesedUpdate;
 import net.sf.jsqlparser.util.deparser.StatementDeParser;
 
 import java.lang.reflect.InvocationTargetException;
@@ -52,6 +57,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
@@ -63,18 +69,31 @@ import java.util.logging.Logger;
 @SuppressWarnings({"PMD.CyclomaticComplexity"})
 public class JSQLColumResolver
     implements SelectVisitor<JdbcResultSetMetaData>, FromItemVisitor<JdbcResultSetMetaData> {
-  public final static Logger LOGGER = Logger.getLogger(JSQLColumResolver.class.getName());
-  private final JdbcMetaData metaData;
-  private final JSQLExpressionColumnResolver expressionColumnResolver;
 
+  public final static Logger LOGGER = Logger.getLogger(JSQLColumResolver.class.getName());
+  private boolean commentFlag = true;
+  final JdbcMetaData metaData;
+  final JSQLExpressionColumnResolver expressionColumnResolver;
 
   /**
-   * Instantiates a new JSQLColumnResolver for the provided Database Metadata
+   * Instantiates a new JSQLColumnResolver for the provided Database Metadata.
    *
    * @param metaData the meta data
    */
   public JSQLColumResolver(JdbcMetaData metaData) {
     this.metaData = metaData;
+    this.expressionColumnResolver = new JSQLExpressionColumnResolver(this);
+  }
+
+
+  /**
+   * Instantiates a new JSQLColumnResolver for the provided Database Connection.
+   *
+   * @param conn the open database connection
+   * @throws SQLException when the Database MetaData can't be queried
+   */
+  public JSQLColumResolver(Connection conn) throws SQLException {
+    this.metaData = new JdbcMetaData(conn);
     this.expressionColumnResolver = new JSQLExpressionColumnResolver(this);
   }
 
@@ -102,6 +121,21 @@ public class JSQLColumResolver
     this("", "", metaDataDefinition);
   }
 
+
+  /**
+   * Resolves the actual columns returned by a SELECT statement for a given CURRENT_CATALOG and
+   * CURRENT_SCHEMA and wraps this information into `ResultSetMetaData`.
+   *
+   * @param select the (parsed) `SELECT` statement
+   * @return the ResultSetMetaData representing the actual columns returned by the `SELECT`
+   *         statement
+   */
+  @SuppressWarnings({"PMD.CyclomaticComplexity", "PMD.ExcessiveMethodLength"})
+  public JdbcResultSetMetaData getResultSetMetaData(Select select) {
+    return select.accept((SelectVisitor<JdbcResultSetMetaData>) this,
+        JdbcMetaData.copyOf(metaData));
+
+  }
 
   /**
    * Resolves the actual columns returned by a SELECT statement for a given CURRENT_CATALOG and
@@ -201,23 +235,25 @@ public class JSQLColumResolver
    * empty CURRENT_SCHEMA and wraps this information into `ResultSetMetaData`.
    *
    * @param sqlStr the `SELECT` statement text
-   * @param consumer the parser configuration - for details, @see <a gref="https://jsqlparser.github.io/JSqlParser/usage.html">JSQLParser</a>
+   * @param consumer the parser configuration - for details, @see
+   *        <a gref="https://jsqlparser.github.io/JSqlParser/usage.html">JSQLParser</a>
    * @return the ResultSetMetaData representing the actual columns returned by the `SELECT`
    *         statement
    * @throws JSQLParserException when the `SELECT` statement text can not be parsed
    */
 
-    public JdbcResultSetMetaData getResultSetMetaData(String sqlStr, Consumer<CCJSqlParser> consumer)
-            throws JSQLParserException {
+  public JdbcResultSetMetaData getResultSetMetaData(String sqlStr, Consumer<CCJSqlParser> consumer)
+      throws JSQLParserException {
 
-        Statement st = CCJSqlParserUtil.parse(sqlStr, consumer);
-        if (st instanceof Select) {
-            Select select = (Select) st;
-            return select.accept((SelectVisitor<JdbcResultSetMetaData>) this, JdbcMetaData.copyOf(metaData));
-        } else {
-            throw new RuntimeException("Unsupported Statement");
-        }
+    Statement st = CCJSqlParserUtil.parse(sqlStr, consumer);
+    if (st instanceof Select) {
+      Select select = (Select) st;
+      return select.accept((SelectVisitor<JdbcResultSetMetaData>) this,
+          JdbcMetaData.copyOf(metaData));
+    } else {
+      throw new RuntimeException("Unsupported Statement");
     }
+  }
 
   /**
    * Gets the rewritten statement text with any AllColumns "*" or AllTableColumns "t.*" expression
@@ -290,21 +326,25 @@ public class JSQLColumResolver
     return builder.getConvertedTree(this);
   }
 
-  
-  //getting lineage and configuring parse behavior - @see <a gref="https://jsqlparser.github.io/JSqlParser/usage.html">JSQLParser</a>  
-  public <T> T getLineage(Class<? extends TreeBuilder<T>> treeBuilderClass, String sqlStr, Consumer<CCJSqlParser> consumer)
-          throws NoSuchMethodException, InvocationTargetException, InstantiationException,
-          IllegalAccessException, SQLException, JSQLParserException {
-        JdbcResultSetMetaData resultSetMetaData = getResultSetMetaData(sqlStr, consumer);
-        TreeBuilder<T> builder =
-            treeBuilderClass.getConstructor(JdbcResultSetMetaData.class).newInstance(resultSetMetaData);
-        return builder.getConvertedTree(this);
-      }
-  
-  
-  
+  // getting lineage and configuring parse behavior - @see <a
+  // gref="https://jsqlparser.github.io/JSqlParser/usage.html">JSQLParser</a>
+  public <T> T getLineage(Class<? extends TreeBuilder<T>> treeBuilderClass, String sqlStr,
+      Consumer<CCJSqlParser> consumer) throws NoSuchMethodException, InvocationTargetException,
+      InstantiationException, IllegalAccessException, SQLException, JSQLParserException {
+    JdbcResultSetMetaData resultSetMetaData = getResultSetMetaData(sqlStr, consumer);
+    TreeBuilder<T> builder =
+        treeBuilderClass.getConstructor(JdbcResultSetMetaData.class).newInstance(resultSetMetaData);
+    return builder.getConvertedTree(this);
+  }
 
-  
+  public Map<String, Set<String>> getLineage(String sqlStr)
+      throws JSQLParserException, SQLException {
+    JdbcResultSetMetaData resultSetMetaData = getResultSetMetaData(sqlStr);
+    FlattenedColumnBuilder builder = new FlattenedColumnBuilder(resultSetMetaData);
+    return builder.getConvertedTree(this);
+  }
+
+
   public static String getQualifiedTableName(String catalogName, String schemaName,
       String tableName) {
     StringBuilder builder = new StringBuilder();
@@ -337,7 +377,7 @@ public class JSQLColumResolver
   @Override
   public <S> JdbcResultSetMetaData visit(Table table, S context) {
     JdbcResultSetMetaData rsMetaData = new JdbcResultSetMetaData();
-
+    JdbcMetaData metaData = (JdbcMetaData) context;
     if (table.getSchemaName() == null || table.getSchemaName().isEmpty()) {
       table.setSchemaName(metaData.getCurrentSchemaName());
     }
@@ -498,14 +538,16 @@ public class JSQLColumResolver
       Alias alias = selectItem.getAlias();
       List<JdbcColumn> jdbcColumns =
           selectItem.getExpression().accept(expressionColumnResolver, metaData);
-
       for (JdbcColumn col : jdbcColumns) {
         resultSetMetaData.add(col, alias != null ? alias.getUnquotedName() : null);
-        Table t = new Table(col.tableCatalog, col.tableSchema, col.tableName);
         if (selectItem.getExpression() instanceof AllColumns
             || selectItem.getExpression() instanceof AllTableColumns) {
-          newSelectItems.add(new SelectItem<>(
-              new Column(t, col.columnName).withCommentText("Resolved Column"), alias));
+          Table t = new Table(col.tableCatalog, col.tableSchema, col.tableName);
+          Column column = new Column(t, col.columnName);
+          if (isCommentFlag()) {
+            column.setCommentText("Resolved Column");
+          }
+          newSelectItems.add(new SelectItem<>(column, alias));
         } else {
           newSelectItems.add(selectItem);
         }
@@ -520,7 +562,7 @@ public class JSQLColumResolver
   @Override
   public <S> JdbcResultSetMetaData visit(PlainSelect select, S context) {
     if (context instanceof JdbcMetaData) {
-      return visit(select, (JdbcMetaData) context);
+      return visit(select, ((JdbcMetaData) context).copyOf());
     } else {
       return null;
     }
@@ -529,6 +571,21 @@ public class JSQLColumResolver
   @Override
   public void visit(PlainSelect plainSelect) {
     SelectVisitor.super.visit(plainSelect);
+  }
+
+  @Override
+  public <S> JdbcResultSetMetaData visit(FromQuery fromQuery, S s) {
+    return null;
+  }
+
+  @Override
+  public <S> JdbcResultSetMetaData visit(PivotQuery pivotQuery, S s) {
+    return null;
+  }
+
+  @Override
+  public void visit(PivotQuery pivotQuery) {
+    SelectVisitor.super.visit(pivotQuery);
   }
 
   // for visiting Column Sub-Selects
@@ -557,10 +614,26 @@ public class JSQLColumResolver
     JdbcResultSetMetaData rsMetaData = null;
     if (context instanceof JdbcMetaData) {
       JdbcMetaData metaData = (JdbcMetaData) context;
-      rsMetaData =
-          withItem.getSelect().accept((SelectVisitor<JdbcResultSetMetaData>) this, metaData);
 
-      metaData.put(rsMetaData, withItem.getUnquotedAliasName(), "Error in WITH clause " + withItem);
+      ParenthesedStatement st = withItem.getParenthesedStatement();
+      if (st instanceof ParenthesedSelect) {
+        rsMetaData =
+            withItem.getSelect().accept((SelectVisitor<JdbcResultSetMetaData>) this, metaData);
+        metaData.put(rsMetaData, withItem.getUnquotedAliasName(),
+            "Error in WITH clause " + withItem);
+      } else if (st instanceof ParenthesedDelete) {
+        rsMetaData = withItem.getDelete().getDelete().getTable().accept(this, metaData);
+        metaData.put(rsMetaData, withItem.getUnquotedAliasName(),
+            "Error in WITH clause " + withItem);
+      } else if (st instanceof ParenthesedInsert) {
+        rsMetaData = withItem.getInsert().getInsert().getTable().accept(this, metaData);
+        metaData.put(rsMetaData, withItem.getUnquotedAliasName(),
+            "Error in WITH clause " + withItem);
+      } else if (st instanceof ParenthesedUpdate) {
+        rsMetaData = withItem.getUpdate().getUpdate().getTable().accept(this, metaData);
+        metaData.put(rsMetaData, withItem.getUnquotedAliasName(),
+            "Error in WITH clause " + withItem);
+      }
     }
     return rsMetaData;
   }
@@ -602,26 +675,12 @@ public class JSQLColumResolver
 
   @Override
   public <S> JdbcResultSetMetaData visit(ParenthesedFromItem parenthesedFromItem, S context) {
-    JdbcResultSetMetaData resultSetMetaData = new JdbcResultSetMetaData();
+    JdbcMetaData metaData = (JdbcMetaData) context;
 
-    FromItem fromItem = parenthesedFromItem.getFromItem();
-    try {
-      resultSetMetaData.add(fromItem.accept(this, context));
-    } catch (SQLException ex) {
-      throw new RuntimeException("Failed on ParenthesedFromItem " + fromItem.toString(), ex);
-    }
-
-    List<Join> joins = parenthesedFromItem.getJoins();
-    if (joins != null && !joins.isEmpty()) {
-      for (Join join : joins) {
-        try {
-          resultSetMetaData.add(join.getFromItem().accept(this, context));
-        } catch (SQLException ex) {
-          throw new RuntimeException("Failed on Join " + join.getFromItem().toString(), ex);
-        }
-      }
-    }
-    return resultSetMetaData;
+    PlainSelect select = new PlainSelect(parenthesedFromItem.getFromItem())
+        .withJoins(parenthesedFromItem.getJoins());
+    return select.accept((SelectVisitor<JdbcResultSetMetaData>) this,
+        JdbcMetaData.copyOf(metaData));
   }
 
   @Override
@@ -637,6 +696,16 @@ public class JSQLColumResolver
   @Override
   public void visit(TableStatement tableStatement) {
     SelectVisitor.super.visit(tableStatement);
+  }
+
+  @Override
+  public <S> JdbcResultSetMetaData visit(Import imprt, S context) {
+    return null;
+  }
+
+  @Override
+  public void visit(Import imprt) {
+    FromItemVisitor.super.visit(imprt);
   }
 
   /**
@@ -676,5 +745,20 @@ public class JSQLColumResolver
    */
   public Set<String> getUnresolvedObjects() {
     return this.metaData.getUnresolvedObjects();
+  }
+
+  /**
+   * @return the comment columns flag
+   */
+  public boolean isCommentFlag() {
+    return commentFlag;
+  }
+
+  /**
+   * @param commentFlag the comment columns flag
+   */
+  public JSQLColumResolver setCommentFlag(boolean commentFlag) {
+    this.commentFlag = commentFlag;
+    return this;
   }
 }

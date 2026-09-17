@@ -12,7 +12,7 @@
 
 
 #######################################################################
-JSQLTranspiler 0.7-SNAPSHOT API
+API 1.9-SNAPSHOT
 #######################################################################
 
 Base Package: ai.starlake.jsqltranspiler
@@ -26,12 +26,77 @@ Base
 ..  _ai.starlake.transpiler.JSQLTranspiler.Dialect
 
 =======================================================================
-JSQLTranspiler.Dialect
+Dialect
 =======================================================================
 
 [GOOGLE_BIG_QUERY, DATABRICKS, SNOWFLAKE, AMAZON_REDSHIFT, ANY, DUCK_DB]
 
 | The enum Dialect.
+
+
+..  _ai.starlake.transpiler.BuildInfo:
+
+=======================================================================
+BuildInfo
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| **BuildInfo** ()
+
+
+
+..  _ai.starlake.transpiler.CatalogNotFoundException:
+
+=======================================================================
+CatalogNotFoundException
+=======================================================================
+
+*extends:* :ref:`RuntimeException<java.lang.RuntimeException>` 
+
+| **CatalogNotFoundException** (catalogName, cause)
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`Throwable<java.lang.Throwable>` cause
+
+
+| **CatalogNotFoundException** (catalogName)
+|          :ref:`String<java.lang.String>` catalogName
+
+
+| **getCatalogName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+
+..  _ai.starlake.transpiler.ColumnNotFoundException:
+
+=======================================================================
+ColumnNotFoundException
+=======================================================================
+
+*extends:* :ref:`RuntimeException<java.lang.RuntimeException>` 
+
+| **ColumnNotFoundException** (columnName, tableNames, cause)
+|          :ref:`String<java.lang.String>` columnName
+|          :ref:`String><java.util.Collection<java.lang.String>>` tableNames
+|          :ref:`Throwable<java.lang.Throwable>` cause
+
+
+| **ColumnNotFoundException** (columnName, tableNames)
+|          :ref:`String<java.lang.String>` columnName
+|          :ref:`String><java.util.Collection<java.lang.String>>` tableNames
+
+
+| **getColumnName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **getTableNames** () → :ref:`String><java.util.Set<java.lang.String>>`
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
+
+
 
 
 ..  _ai.starlake.transpiler.JSQLColumResolver:
@@ -40,70 +105,83 @@ JSQLTranspiler.Dialect
 JSQLColumResolver
 =======================================================================
 
-*extends:* :ref:`Object<java.lang.Object>` 
+*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`JdbcResultSetMetaData><net.sf.jsqlparser.statement.select.SelectVisitor<ai.starlake.transpiler.schema.JdbcResultSetMetaData>>`, :ref:`JdbcResultSetMetaData><net.sf.jsqlparser.statement.select.FromItemVisitor<ai.starlake.transpiler.schema.JdbcResultSetMetaData>>` *provides:* :ref:`JSQLResolver<ai.starlake.transpiler.JSQLResolver>` 
 
 | A class for resolving the actual columns returned by a SELECT statement. Depends on virtual or physical Database Metadata holding the schema and table information.
 
 | **JSQLColumResolver** (metaData)
-| Instantiates a new JSQLColumnResolver for the provided Database Meta Data
-|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData  | metaData the meta data
+| Instantiates a new JSQLColumnResolver for the provided Database Metadata.
+|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData
+
+
+| **JSQLColumResolver** (conn)
+| Instantiates a new JSQLColumnResolver for the provided Database Connection.
+|          :ref:`Connection<java.sql.Connection>` conn
 
 
 | **JSQLColumResolver** (currentCatalogName, currentSchemaName, metaDataDefinition)
-| Instantiates a new JSQLColumnResolver for the provided simplified Meta Data, presented as an Array of Tables and Column Names only.
-|          :ref:`String<java.lang.String>` currentCatalogName  | currentCatalogName the current catalog name
-|          :ref:`String<java.lang.String>` currentSchemaName  | currentSchemaName the current schema name
-|          :ref:`String<java.lang.String>` metaDataDefinition  | metaDataDefinition the meta data definition as n Array of Tablename and Column Names
+| Instantiates a new JSQLColumnResolver for the provided simplified Metadata, presented as an Array of Tables and Column Names only.
+|          :ref:`String<java.lang.String>` currentCatalogName
+|          :ref:`String<java.lang.String>` currentSchemaName
+|          :ref:`String[][]<java.lang.String[][]>` metaDataDefinition
 
 
 | **JSQLColumResolver** (metaDataDefinition)
-| Instantiates a new JSQLColumnResolver for the provided simplified Meta Data with an empty CURRENT_SCHEMA and CURRENT_CATALOG
-|          :ref:`String<java.lang.String>` metaDataDefinition  | metaDataDefinition the meta data definition as n Array of Tablename and Column Names
+| Instantiates a new JSQLColumnResolver for the provided simplified Metadata with an empty CURRENT_SCHEMA and CURRENT_CATALOG
+|          :ref:`String[][]<java.lang.String[][]>` metaDataDefinition
+
+
+| *@SuppressWarnings*
+| **getResultSetMetaData** (select) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+| Resolves the actual columns returned by a SELECT statement for a given CURRENT_CATALOG and CURRENT_SCHEMA and wraps this information into `ResultSetMetaData`.
+|          :ref:`Select<net.sf.jsqlparser.statement.select.Select>` select
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+
 
 
 | *@SuppressWarnings*
 | **getResultSetMetaData** (sqlStr, metaData) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 | Resolves the actual columns returned by a SELECT statement for a given CURRENT_CATALOG and CURRENT_SCHEMA and wraps this information into `ResultSetMetaData`.
-|          :ref:`String<java.lang.String>` sqlStr  | sqlStr the `SELECT` statement text
-|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData  | metaData the Database Meta Data
-|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`  | the ResultSetMetaData representing the actual columns returned by the `SELECT` statement
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
 
 
 | **getResultSetMetaData** (sqlStr, metaDataDefinition, currentCatalogName, currentSchemaName) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 | Resolves the actual columns returned by a SELECT statement for a given CURRENT_CATALOG and CURRENT_SCHEMA and wraps this information into `ResultSetMetaData`.
-|          :ref:`String<java.lang.String>` sqlStr  | sqlStr the `SELECT` statement text
-|          :ref:`String<java.lang.String>` metaDataDefinition  | metaDataDefinition the meta data definition as an array of Tables with Columns e.g. { TABLE_NAME, COLUMN1, COLUMN2 ... COLUMN10 }
-|          :ref:`String<java.lang.String>` currentCatalogName  | currentCatalogName the CURRENT_CATALOG name (which is the default catalog for accessing the schemas)
-|          :ref:`String<java.lang.String>` currentSchemaName  | currentSchemaName the CURRENT_SCHEMA name (which is the default schema for accessing the tables)
-|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`  | the ResultSetMetaData representing the actual columns returned by the `SELECT` statement
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`String[][]<java.lang.String[][]>` metaDataDefinition
+|          :ref:`String<java.lang.String>` currentCatalogName
+|          :ref:`String<java.lang.String>` currentSchemaName
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
 
 
 | **getResultSetMetaData** (sqlStr, metaDataDefinition) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 | Resolves the actual columns returned by a SELECT statement for an empty CURRENT_CATALOG and an empty CURRENT_SCHEMA and wraps this information into `ResultSetMetaData`.
-|          :ref:`String<java.lang.String>` sqlStr  | sqlStr the `SELECT` statement text
-|          :ref:`String<java.lang.String>` metaDataDefinition  | metaDataDefinition the metadata definition as an array of Tables with Columns e.g. { TABLE_NAME, COLUMN1, COLUMN2 ... COLUMN10 }
-|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`  | the ResultSetMetaData representing the actual columns returned by the `SELECT` statement
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`String[][]<java.lang.String[][]>` metaDataDefinition
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
 
 
 | **getResultSetMetaData** (sqlStr) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 | Resolves the actual columns returned by a SELECT statement for an empty CURRENT_CATALOG and an empty CURRENT_SCHEMA and wraps this information into `ResultSetMetaData`.
-|          :ref:`String<java.lang.String>` sqlStr  | sqlStr the `SELECT` statement text
-|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`  | the ResultSetMetaData representing the actual columns returned by the `SELECT` statement
+|          :ref:`String<java.lang.String>` sqlStr
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
 
 
 | **getResolvedStatementText** (sqlStr) → :ref:`String<java.lang.String>`
 | Gets the rewritten statement text with any AllColumns "*" or AllTableColumns "t.*" expression resolved into the actual columns
-|          :ref:`String<java.lang.String>` sqlStr  | sqlStr the query statement string (using any AllColumns "*" or AllTableColumns "t.*" expression)
-|          returns :ref:`String<java.lang.String>`  | rewritten statement text with any AllColumns "*" or AllTableColumns "t.*" expression resolved into the actual columns
+|          :ref:`String<java.lang.String>` sqlStr
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | **getLineage** (treeBuilderClass, sqlStr, connection) → T
-|          :ref:`Class<java.lang.Class>` treeBuilderClass
+|          :ref:`TreeBuilder<T>><java.lang.Class<? extends ai.starlake.transpiler.schema.treebuilder.TreeBuilder<T>>>` treeBuilderClass
 |          :ref:`String<java.lang.String>` sqlStr
 |          :ref:`Connection<java.sql.Connection>` connection
 |          returns T
@@ -111,9 +189,9 @@ JSQLColumResolver
 
 
 | **getLineage** (treeBuilderClass, sqlStr, metaDataDefinition, currentCatalogName, currentSchemaName) → T
-|          :ref:`Class<java.lang.Class>` treeBuilderClass
+|          :ref:`TreeBuilder<T>><java.lang.Class<? extends ai.starlake.transpiler.schema.treebuilder.TreeBuilder<T>>>` treeBuilderClass
 |          :ref:`String<java.lang.String>` sqlStr
-|          :ref:`String<java.lang.String>` metaDataDefinition
+|          :ref:`String[][]<java.lang.String[][]>` metaDataDefinition
 |          :ref:`String<java.lang.String>` currentCatalogName
 |          :ref:`String<java.lang.String>` currentSchemaName
 |          returns T
@@ -121,9 +199,22 @@ JSQLColumResolver
 
 
 | **getLineage** (treeBuilderClass, select) → T
-|          :ref:`Class<java.lang.Class>` treeBuilderClass
-|          Select select
+|          :ref:`TreeBuilder<T>><java.lang.Class<? extends ai.starlake.transpiler.schema.treebuilder.TreeBuilder<T>>>` treeBuilderClass
+|          :ref:`Select<net.sf.jsqlparser.statement.select.Select>` select
 |          returns T
+
+
+
+| **getLineage** (treeBuilderClass, sqlStr) → T
+|          :ref:`TreeBuilder<T>><java.lang.Class<? extends ai.starlake.transpiler.schema.treebuilder.TreeBuilder<T>>>` treeBuilderClass
+|          :ref:`String<java.lang.String>` sqlStr
+|          returns T
+
+
+
+| **getLineage** (sqlStr) → :ref:`String>><java.util.Map<java.lang.String,java.util.Set<java.lang.String>>>`
+|          :ref:`String<java.lang.String>` sqlStr
+|          returns :ref:`String>><java.util.Map<java.lang.String,java.util.Set<java.lang.String>>>`
 
 
 
@@ -146,14 +237,19 @@ JSQLColumResolver
 
 | *@Override*
 | **visit** (table, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          Table table
+|          :ref:`Table<net.sf.jsqlparser.schema.Table>` table
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
 
 
+| *@Override*
+| **visit** (tableName)
+|          :ref:`Table<net.sf.jsqlparser.schema.Table>` tableName
+
+
 | **visit** (parenthesedSelect, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          ParenthesedSelect parenthesedSelect
+|          :ref:`ParenthesedSelect<net.sf.jsqlparser.statement.select.ParenthesedSelect>` parenthesedSelect
 |          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
@@ -161,7 +257,7 @@ JSQLColumResolver
 
 | *@Override*
 | **visit** (parenthesedSelect, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          ParenthesedSelect parenthesedSelect
+|          :ref:`ParenthesedSelect<net.sf.jsqlparser.statement.select.ParenthesedSelect>` parenthesedSelect
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
@@ -169,12 +265,12 @@ JSQLColumResolver
 
 | *@Override*
 | **visit** (parenthesedSelect)
-|          ParenthesedSelect parenthesedSelect
+|          :ref:`ParenthesedSelect<net.sf.jsqlparser.statement.select.ParenthesedSelect>` parenthesedSelect
 
 
 | *@SuppressWarnings*
 | **visit** (select, metaData) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          PlainSelect select
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` select
 |          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
@@ -182,7 +278,7 @@ JSQLColumResolver
 
 | *@Override*
 | **visit** (select, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          PlainSelect select
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` select
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
@@ -190,34 +286,52 @@ JSQLColumResolver
 
 | *@Override*
 | **visit** (plainSelect)
-|          PlainSelect plainSelect
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+
+
+| *@Override*
+| **visit** (fromQuery, s) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+|          :ref:`FromQuery<net.sf.jsqlparser.statement.piped.FromQuery>` fromQuery
+|          S s
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+
 
 
 | **visit** (select) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          Select select
+|          :ref:`Select<net.sf.jsqlparser.statement.select.Select>` select
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
 
 
 | *@Override*
 | **visit** (setOperationList, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          SetOperationList setOperationList
+|          :ref:`SetOperationList<net.sf.jsqlparser.statement.select.SetOperationList>` setOperationList
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
+
+
+| *@Override*
+| **visit** (setOpList)
+|          :ref:`SetOperationList<net.sf.jsqlparser.statement.select.SetOperationList>` setOpList
 
 
 | *@Override*
 | **visit** (withItem, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          <any> withItem
+|          :ref:`WithItem<?><net.sf.jsqlparser.statement.select.WithItem<?>>` withItem
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
 
 
 | *@Override*
+| **visit** (withItem)
+|          :ref:`WithItem<?><net.sf.jsqlparser.statement.select.WithItem<?>>` withItem
+
+
+| *@Override*
 | **visit** (values, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          Values values
+|          :ref:`Values<net.sf.jsqlparser.statement.select.Values>` values
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
@@ -225,12 +339,12 @@ JSQLColumResolver
 
 | *@Override*
 | **visit** (values)
-|          Values values
+|          :ref:`Values<net.sf.jsqlparser.statement.select.Values>` values
 
 
 | *@Override*
 | **visit** (lateralSubSelect, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          LateralSubSelect lateralSubSelect
+|          :ref:`LateralSubSelect<net.sf.jsqlparser.statement.select.LateralSubSelect>` lateralSubSelect
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
@@ -238,30 +352,93 @@ JSQLColumResolver
 
 | *@Override*
 | **visit** (lateralSubSelect)
-|          LateralSubSelect lateralSubSelect
+|          :ref:`LateralSubSelect<net.sf.jsqlparser.statement.select.LateralSubSelect>` lateralSubSelect
 
 
 | *@Override*
 | **visit** (tableFunction, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          TableFunction tableFunction
+|          :ref:`TableFunction<net.sf.jsqlparser.statement.select.TableFunction>` tableFunction
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
+
+
+| *@Override*
+| **visit** (tableFunction)
+|          :ref:`TableFunction<net.sf.jsqlparser.statement.select.TableFunction>` tableFunction
 
 
 | *@Override*
 | **visit** (parenthesedFromItem, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          ParenthesedFromItem parenthesedFromItem
+|          :ref:`ParenthesedFromItem<net.sf.jsqlparser.statement.select.ParenthesedFromItem>` parenthesedFromItem
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
 
 
 
 | *@Override*
+| **visit** (parenthesedFromItem)
+|          :ref:`ParenthesedFromItem<net.sf.jsqlparser.statement.select.ParenthesedFromItem>` parenthesedFromItem
+
+
+| *@Override*
 | **visit** (tableStatement, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
-|          TableStatement tableStatement
+|          :ref:`TableStatement<net.sf.jsqlparser.statement.select.TableStatement>` tableStatement
 |          S context
 |          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+
+
+
+| *@Override*
+| **visit** (tableStatement)
+|          :ref:`TableStatement<net.sf.jsqlparser.statement.select.TableStatement>` tableStatement
+
+
+| *@Override*
+| **visit** (imprt, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+|          :ref:`Import<net.sf.jsqlparser.statement.imprt.Import>` imprt
+|          S context
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+
+
+
+| *@Override*
+| **visit** (imprt)
+|          :ref:`Import<net.sf.jsqlparser.statement.imprt.Import>` imprt
+
+
+| **getErrorMode** () → :ref:`ErrorMode<ai.starlake.transpiler.schema.JdbcMetaData.ErrorMode>`
+| Gets the error mode.
+|          returns :ref:`ErrorMode<ai.starlake.transpiler.schema.JdbcMetaData.ErrorMode>`
+
+
+
+| **setErrorMode** (errorMode) → :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>`
+| Sets the error mode.
+|          :ref:`ErrorMode<ai.starlake.transpiler.schema.JdbcMetaData.ErrorMode>` errorMode
+|          returns :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>`
+
+
+
+| **addUnresolved** (unquotedQualifiedName)
+| Add the name of an unresolvable column or table to the list.
+|          :ref:`String<java.lang.String>` unquotedQualifiedName
+
+
+| **getUnresolvedObjects** () → :ref:`String><java.util.Set<java.lang.String>>`
+| Gets unresolved column or table names, not existing in the schema
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
+
+
+
+| **isCommentFlag** () → boolean
+|          returns boolean
+
+
+
+| **setCommentFlag** (commentFlag) → :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>`
+|          boolean commentFlag
+|          returns :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>`
 
 
 
@@ -272,134 +449,186 @@ JSQLColumResolver
 JSQLDeleteTranspiler
 =======================================================================
 
-*extends:* DeleteDeParser 
+*extends:* :ref:`DeleteDeParser<net.sf.jsqlparser.util.deparser.DeleteDeParser>` 
 
 
+                |          :ref:`ExpressionVisitor<net.sf.jsqlparser.expression.ExpressionVisitor>` expressionVisitor
+
+                |          :ref:`StringBuilder<java.lang.StringBuilder>` builder
+
+            
 ..  _ai.starlake.transpiler.JSQLExpressionColumnResolver:
 
 =======================================================================
 JSQLExpressionColumnResolver
 =======================================================================
 
-*extends:* <any> 
+*extends:* :ref:`JdbcColumn>><net.sf.jsqlparser.expression.ExpressionVisitorAdapter<java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>>` *implements:* :ref:`JdbcColumn>><net.sf.jsqlparser.statement.select.SelectVisitor<java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>>` 
 
 | **JSQLExpressionColumnResolver** (columResolver)
 |          :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>` columResolver
 
 
+| **getJdbcColumn** (metaData, column) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
+|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData
+|          :ref:`Column<net.sf.jsqlparser.schema.Column>` column
+|          returns :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 
-                |          Expression expression
+
+
+
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 
                 |          S context
 
-                |          returns :ref:`List<java.util.List>`
+                |          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
                 
             
-                |          Expression expression
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 
                 |          S context
 
-                |          :ref:`Collection<java.util.Collection>` subExpressions
+                |          :ref:`Expression><java.util.Collection<net.sf.jsqlparser.expression.Expression>>` subExpressions
 
-                |          returns :ref:`List<java.util.List>`
+                |          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
                 
             | *@Override*
-| **visit** (function, context) → :ref:`List<java.util.List>`
-|          Function function
+| **visit** (function, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| *@Override*
+| **visit** (function, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`TranscodingFunction<net.sf.jsqlparser.expression.TranscodingFunction>` function
+|          S context
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| *@Override*
+| **visit** (function, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`JsonAggregateFunction<net.sf.jsqlparser.expression.JsonAggregateFunction>` function
+|          S context
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| *@Override*
+| **visit** (function, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`JsonFunction<net.sf.jsqlparser.expression.JsonFunction>` function
+|          S context
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| *@Override*
+| **visit** (function, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`AnalyticExpression<net.sf.jsqlparser.expression.AnalyticExpression>` function
+|          S context
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@SuppressWarnings*,| *@Override*
-| **visit** (allTableColumns, context) → :ref:`List<java.util.List>`
-|          AllTableColumns allTableColumns
+| **visit** (allTableColumns, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`AllTableColumns<net.sf.jsqlparser.statement.select.AllTableColumns>` allTableColumns
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@SuppressWarnings*,| *@Override*
-| **visit** (allColumns, context) → :ref:`List<java.util.List>`
-|          AllColumns allColumns
+| **visit** (allColumns, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`AllColumns<net.sf.jsqlparser.statement.select.AllColumns>` allColumns
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@Override*
-| **visit** (column, context) → :ref:`List<java.util.List>`
-|          Column column
+| **visit** (column, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`Column<net.sf.jsqlparser.schema.Column>` column
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@Override*
-| **visit** (select, context) → :ref:`List<java.util.List>`
-|          ParenthesedSelect select
+| **visit** (select, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`ParenthesedSelect<net.sf.jsqlparser.statement.select.ParenthesedSelect>` select
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@Override*
-| **visit** (select, context) → :ref:`List<java.util.List>`
-|          Select select
+| **visit** (select, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`Select<net.sf.jsqlparser.statement.select.Select>` select
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@Override*
-| **visit** (plainSelect, context) → :ref:`List<java.util.List>`
-|          PlainSelect plainSelect
+| **visit** (plainSelect, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@Override*
-| **visit** (setOperationList, context) → :ref:`List<java.util.List>`
-|          SetOperationList setOperationList
+| **visit** (setOperationList, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`SetOperationList<net.sf.jsqlparser.statement.select.SetOperationList>` setOperationList
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@Override*
-| **visit** (withItem, context) → :ref:`List<java.util.List>`
-|          <any> withItem
+| **visit** (withItem, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`WithItem<?><net.sf.jsqlparser.statement.select.WithItem<?>>` withItem
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@Override*
-| **visit** (values, context) → :ref:`List<java.util.List>`
-|          Values values
+| **visit** (values, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`Values<net.sf.jsqlparser.statement.select.Values>` values
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@Override*
-| **visit** (lateralSubSelect, context) → :ref:`List<java.util.List>`
-|          LateralSubSelect lateralSubSelect
+| **visit** (lateralSubSelect, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`LateralSubSelect<net.sf.jsqlparser.statement.select.LateralSubSelect>` lateralSubSelect
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | *@Override*
-| **visit** (tableStatement, context) → :ref:`List<java.util.List>`
-|          TableStatement tableStatement
+| **visit** (tableStatement, context) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`TableStatement<net.sf.jsqlparser.statement.select.TableStatement>` tableStatement
 |          S context
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **clearFunctions** ()
+
+
+| **getFunctions** () → :ref:`Expression><java.util.List<net.sf.jsqlparser.expression.Expression>>`
+|          returns :ref:`Expression><java.util.List<net.sf.jsqlparser.expression.Expression>>`
 
 
 
@@ -410,39 +639,93 @@ JSQLExpressionColumnResolver
 JSQLExpressionTranspiler
 =======================================================================
 
-*extends:* ExpressionDeParser *provides:* :ref:`BigQueryExpressionTranspiler<ai.starlake.transpiler.bigquery.BigQueryExpressionTranspiler>`, :ref:`RedshiftExpressionTranspiler<ai.starlake.transpiler.redshift.RedshiftExpressionTranspiler>` 
+*extends:* :ref:`ExpressionDeParser<net.sf.jsqlparser.util.deparser.ExpressionDeParser>` *provides:* :ref:`BigQueryExpressionTranspiler<ai.starlake.transpiler.bigquery.BigQueryExpressionTranspiler>`, :ref:`RedshiftExpressionTranspiler<ai.starlake.transpiler.redshift.RedshiftExpressionTranspiler>` 
 
 | The type Expression transpiler.
 
-| **JSQLExpressionTranspiler** (deParser, buffer)
-|          SelectDeParser deParser
-|          :ref:`StringBuilder<java.lang.StringBuilder>` buffer
+| **JSQLExpressionTranspiler** (deParser, builder)
+|          :ref:`SelectDeParser<net.sf.jsqlparser.util.deparser.SelectDeParser>` deParser
+|          :ref:`StringBuilder<java.lang.StringBuilder>` builder
 
 
 | **isDatePart** (expression, dialect) → boolean
-|          Expression expression
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 |          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect
 |          returns boolean
 
 
 
 
-                |          Expression expression
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+                |          returns boolean
+
+
+            
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+                |          returns boolean
+
+
+            
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+                |          returns boolean
+
+
+            
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+                |          returns boolean
+
+
+            
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+                |          returns boolean
+
+
+            
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+                |          returns boolean
+
+
+            
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+                |          returns boolean
+
+
+            
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+                |          returns boolean
+
+
+            
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+                |          returns boolean
+
+
+            
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 
                 |          returns boolean
 
 
             | **isDateTimePart** (expression, dialect) → boolean
-|          Expression expression
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 |          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect
 |          returns boolean
 
 
 
-| **toDateTimePart** (expression, dialect) → Expression
-|          Expression expression
+| **toDateTimePart** (expression, dialect) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 |          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect
-|          returns Expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
@@ -453,21 +736,29 @@ JSQLExpressionTranspiler
 
 
 | **hasTimeZoneInfo** (timestamp) → boolean
-|          Expression timestamp
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` timestamp
 |          returns boolean
 
 
 
-| **rewriteDateLiteral** (p, dateTimeType) → Expression
-|          Expression p
-|          :ref:`DateTime<DateTimeLiteralExpression.DateTime>` dateTimeType
-|          returns Expression
+| **rewriteDateLiteral** (p, dateTimeType) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` p
+|          :ref:`DateTime<net.sf.jsqlparser.expression.DateTimeLiteralExpression.DateTime>` dateTimeType
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| *@SuppressWarnings*,| *@Override*
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          int index
+
+                |          returns boolean
+
+
+            | *@SuppressWarnings*,| *@Override*
 | **visit** (function, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Function function
+|          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -475,7 +766,7 @@ JSQLExpressionTranspiler
 
 | *@Override*
 | **visit** (allColumns, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          AllColumns allColumns
+|          :ref:`AllColumns<net.sf.jsqlparser.statement.select.AllColumns>` allColumns
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -483,25 +774,161 @@ JSQLExpressionTranspiler
 
 | *@SuppressWarnings*,| *@Override*
 | **visit** (function, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          AnalyticExpression function
+|          :ref:`AnalyticExpression<net.sf.jsqlparser.expression.AnalyticExpression>` function
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
 
-                |          Function function
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
 
-                |          <any> parameters
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
-                |          :ref:`DateTime<DateTimeLiteralExpression.DateTime>` dateTimeType
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+            
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+            
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+            
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
 
                 |          returns void
 
 
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns void
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          :ref:`DateTime<net.sf.jsqlparser.expression.DateTimeLiteralExpression.DateTime>` dateTimeType
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+            
+                |          :ref:`StringValue<net.sf.jsqlparser.expression.StringValue>` formatStringValue
+
+                |          returns :ref:`StringValue<net.sf.jsqlparser.expression.StringValue>`
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns void
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          :ref:`DateTime<net.sf.jsqlparser.expression.DateTimeLiteralExpression.DateTime>` dateTimeType
+
+                |          returns void
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          :ref:`DateTime<net.sf.jsqlparser.expression.DateTimeLiteralExpression.DateTime>` dateTimeType
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns void
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          :ref:`DateTime<net.sf.jsqlparser.expression.DateTimeLiteralExpression.DateTime>` dateTimeType
+
+                |          returns void
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns void
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+            
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+            
+                |          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
+
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+            
+                |          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` parameters
+
+                |          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
             | *@Override*
 | **visit** (extractExpression, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          ExtractExpression extractExpression
+|          :ref:`ExtractExpression<net.sf.jsqlparser.expression.ExtractExpression>` extractExpression
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -509,7 +936,7 @@ JSQLExpressionTranspiler
 
 | *@Override*
 | **visit** (stringValue, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          StringValue stringValue
+|          :ref:`StringValue<net.sf.jsqlparser.expression.StringValue>` stringValue
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -517,7 +944,7 @@ JSQLExpressionTranspiler
 
 | *@Override*
 | **visit** (hexValue, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          HexValue hexValue
+|          :ref:`HexValue<net.sf.jsqlparser.expression.HexValue>` hexValue
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -531,7 +958,7 @@ JSQLExpressionTranspiler
 
 | *@Override*
 | **visit** (castExpression, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          CastExpression castExpression
+|          :ref:`CastExpression<net.sf.jsqlparser.expression.CastExpression>` castExpression
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -539,15 +966,22 @@ JSQLExpressionTranspiler
 
 | *@Override*
 | **visit** (structType, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          StructType structType
+|          :ref:`StructType<net.sf.jsqlparser.expression.StructType>` structType
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
-| **rewriteType** (colDataType) → ColDataType
-|          ColDataType colDataType
-|          returns ColDataType
+| **visit** (jsonFunction, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
+|          :ref:`JsonFunction<net.sf.jsqlparser.expression.JsonFunction>` jsonFunction
+|          S context
+|          returns :ref:`StringBuilder<java.lang.StringBuilder>`
+
+
+
+| **rewriteType** (colDataType) → :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>`
+|          :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>` colDataType
+|          returns :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>`
 
 
 
@@ -561,80 +995,90 @@ JSQLExpressionTranspiler
 
 
 
-| **castDateTime** (expression) → Expression
+
+                |          :ref:`Date<java.util.Date>` date
+
+                |          :ref:`String<java.lang.String>` pattern
+
+                |          :ref:`String<java.lang.String>` tzID
+
+                |          returns :ref:`String<java.lang.String>`
+
+
+            | **castDateTime** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 |          :ref:`String<java.lang.String>` expression
-|          returns Expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| **castDateTime** (expression) → Expression
-|          Expression expression
-|          returns Expression
-
-
-
-| *@SuppressWarnings*
-| **castDateTime** (expression) → Expression
-|          DateTimeLiteralExpression expression
-|          returns Expression
+| **castDateTime** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
 | *@SuppressWarnings*
-| **castDateTime** (expression) → Expression
-|          CastExpression expression
-|          returns Expression
+| **castDateTime** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`DateTimeLiteralExpression<net.sf.jsqlparser.expression.DateTimeLiteralExpression>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
 | *@SuppressWarnings*
-| **castDateTime** (expression) → Expression
-|          StringValue expression
-|          returns Expression
+| **castDateTime** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`CastExpression<net.sf.jsqlparser.expression.CastExpression>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| **castInterval** (expression) → Expression
+| *@SuppressWarnings*
+| **castDateTime** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`StringValue<net.sf.jsqlparser.expression.StringValue>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+
+
+
+| **castInterval** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 |          :ref:`String<java.lang.String>` expression
-|          returns Expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| **castInterval** (e1, e2, dialect) → Expression
-|          Expression e1
-|          Expression e2
+| **castInterval** (e1, e2, dialect) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` e1
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` e2
 |          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect
-|          returns Expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| **castInterval** (expression) → Expression
-|          Expression expression
-|          returns Expression
+| **castInterval** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| **castInterval** (expression) → Expression
-|          StringValue expression
-|          returns Expression
+| **castInterval** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`StringValue<net.sf.jsqlparser.expression.StringValue>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| **castInterval** (expression) → Expression
-|          CastExpression expression
-|          returns Expression
+| **castInterval** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`CastExpression<net.sf.jsqlparser.expression.CastExpression>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| **castInterval** (expression) → Expression
-|          IntervalExpression expression
-|          returns Expression
+| **castInterval** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`IntervalExpression<net.sf.jsqlparser.expression.IntervalExpression>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
 | *@Override*
 | **visit** (expression, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          TimeKeyExpression expression
+|          :ref:`TimeKeyExpression<net.sf.jsqlparser.expression.TimeKeyExpression>` expression
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -642,7 +1086,7 @@ JSQLExpressionTranspiler
 
 | *@Override*
 | **visit** (likeExpression, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          LikeExpression likeExpression
+|          :ref:`LikeExpression<net.sf.jsqlparser.expression.operators.relational.LikeExpression>` likeExpression
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -650,27 +1094,27 @@ JSQLExpressionTranspiler
 
 | *@Override*
 | **visit** (function, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          TranscodingFunction function
+|          :ref:`TranscodingFunction<net.sf.jsqlparser.expression.TranscodingFunction>` function
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
 | **isEmpty** (collection) → boolean
-|          :ref:`Collection<java.util.Collection>` collection
+|          :ref:`Collection<?><java.util.Collection<?>>` collection
 |          returns boolean
 
 
 
 | **hasParameters** (function) → boolean
-|          Function function
+|          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
 |          returns boolean
 
 
 
 | *@Override*
 | **visit** (column, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Column column
+|          :ref:`Column<net.sf.jsqlparser.schema.Column>` column
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -678,9 +1122,196 @@ JSQLExpressionTranspiler
 
 | *@Override*
 | **visit** (expressionList, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          <any> expressionList
+|          :ref:`ExpressionList<?><net.sf.jsqlparser.expression.operators.relational.ExpressionList<?>>` expressionList
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
+
+
+
+| *@Override*
+| **visit** (e, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
+|          :ref:`JsonExpression<net.sf.jsqlparser.expression.JsonExpression>` e
+|          S context
+|          returns :ref:`StringBuilder<java.lang.StringBuilder>`
+
+
+
+| **visit** (arrayConstructor, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
+|          :ref:`ArrayConstructor<net.sf.jsqlparser.expression.ArrayConstructor>` arrayConstructor
+|          S context
+|          returns :ref:`StringBuilder<java.lang.StringBuilder>`
+
+
+
+
+..  _ai.starlake.transpiler.JSQLFromQueryTranspiler:
+
+=======================================================================
+JSQLFromQueryTranspiler
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`PlainSelect><net.sf.jsqlparser.statement.piped.FromQueryVisitor<net.sf.jsqlparser.statement.select.PlainSelect,net.sf.jsqlparser.statement.select.PlainSelect>>`, :ref:`PlainSelect><net.sf.jsqlparser.statement.piped.PipeOperatorVisitor<net.sf.jsqlparser.statement.select.PlainSelect,net.sf.jsqlparser.statement.select.PlainSelect>>` 
+
+| **JSQLFromQueryTranspiler** ()
+
+
+| *@Override*
+| **visit** (fromQuery, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`FromQuery<net.sf.jsqlparser.statement.piped.FromQuery>` fromQuery
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (aggregatePipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`AggregatePipeOperator<net.sf.jsqlparser.statement.piped.AggregatePipeOperator>` aggregatePipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (asPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`AsPipeOperator<net.sf.jsqlparser.statement.piped.AsPipeOperator>` asPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (callPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`CallPipeOperator<net.sf.jsqlparser.statement.piped.CallPipeOperator>` callPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (dropPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`DropPipeOperator<net.sf.jsqlparser.statement.piped.DropPipeOperator>` dropPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (extendPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`ExtendPipeOperator<net.sf.jsqlparser.statement.piped.ExtendPipeOperator>` extendPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (joinPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`JoinPipeOperator<net.sf.jsqlparser.statement.piped.JoinPipeOperator>` joinPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (limitPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`LimitPipeOperator<net.sf.jsqlparser.statement.piped.LimitPipeOperator>` limitPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (orderByPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`OrderByPipeOperator<net.sf.jsqlparser.statement.piped.OrderByPipeOperator>` orderByPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (pivotPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`PivotPipeOperator<net.sf.jsqlparser.statement.piped.PivotPipeOperator>` pivotPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (renamePipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`RenamePipeOperator<net.sf.jsqlparser.statement.piped.RenamePipeOperator>` renamePipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (selectPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`SelectPipeOperator<net.sf.jsqlparser.statement.piped.SelectPipeOperator>` selectPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (setPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`SetPipeOperator<net.sf.jsqlparser.statement.piped.SetPipeOperator>` setPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+
+                |          :ref:`AllColumns<net.sf.jsqlparser.statement.select.AllColumns>` allColumns
+
+                |          :ref:`SetPipeOperator<net.sf.jsqlparser.statement.piped.SetPipeOperator>` setPipeOperator
+
+                |          returns void
+
+
+            
+                |          :ref:`AllColumns<net.sf.jsqlparser.statement.select.AllColumns>` allColumns
+
+                |          :ref:`DropPipeOperator<net.sf.jsqlparser.statement.piped.DropPipeOperator>` setPipeOperator
+
+                |          returns void
+
+
+            | *@Override*
+| **visit** (tableSamplePipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`TableSamplePipeOperator<net.sf.jsqlparser.statement.piped.TableSamplePipeOperator>` tableSamplePipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (setOperationPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`SetOperationPipeOperator<net.sf.jsqlparser.statement.piped.SetOperationPipeOperator>` setOperationPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (unPivotPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`UnPivotPipeOperator<net.sf.jsqlparser.statement.piped.UnPivotPipeOperator>` unPivotPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (wherePipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`WherePipeOperator<net.sf.jsqlparser.statement.piped.WherePipeOperator>` wherePipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+
+
+
+| *@Override*
+| **visit** (windowPipeOperator, plainSelect) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`WindowPipeOperator<net.sf.jsqlparser.statement.piped.WindowPipeOperator>` windowPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
 
 
 
@@ -691,21 +1322,339 @@ JSQLExpressionTranspiler
 JSQLInsertTranspiler
 =======================================================================
 
-*extends:* InsertDeParser 
+*extends:* :ref:`InsertDeParser<net.sf.jsqlparser.util.deparser.InsertDeParser>` 
 
 
+                |          :ref:`ExpressionVisitor<net.sf.jsqlparser.expression.ExpressionVisitor>` expressionVisitor
+
+                |          :ref:`SelectVisitor<net.sf.jsqlparser.statement.select.SelectVisitor>` selectVisitor
+
+                |          :ref:`StringBuilder<java.lang.StringBuilder>` builder
+
+            
 ..  _ai.starlake.transpiler.JSQLMergeTranspiler:
 
 =======================================================================
 JSQLMergeTranspiler
 =======================================================================
 
-*extends:* MergeDeParser 
+*extends:* :ref:`MergeDeParser<net.sf.jsqlparser.util.deparser.MergeDeParser>` 
 
 | **JSQLMergeTranspiler** (expressionDeParser, selectDeParser, buffer)
-|          ExpressionDeParser expressionDeParser
-|          SelectDeParser selectDeParser
+|          :ref:`ExpressionDeParser<net.sf.jsqlparser.util.deparser.ExpressionDeParser>` expressionDeParser
+|          :ref:`SelectDeParser<net.sf.jsqlparser.util.deparser.SelectDeParser>` selectDeParser
 |          :ref:`StringBuilder<java.lang.StringBuilder>` buffer
+
+
+
+..  _ai.starlake.transpiler.JSQLReplacer:
+
+=======================================================================
+JSQLReplacer
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| The JSQLReplacer class for replacing any occurrence of a table in a statement.
+
+| **JSQLReplacer** (metaData)
+| Instantiates a new JSQLReplacer for a given Database MetaData for an empty default Catalog and Schema.
+|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData
+
+
+| **JSQLReplacer** (connection)
+| Instantiates a new JSQLReplacer for a given open Database Connection.
+|          :ref:`Connection<java.sql.Connection>` connection
+
+
+| **JSQLReplacer** (currentCatalogName, currentSchemaName, metaDataDefinition)
+| Instantiates a new JSQLReplacer for a given Database MetaData.
+|          :ref:`String<java.lang.String>` currentCatalogName
+|          :ref:`String<java.lang.String>` currentSchemaName
+|          :ref:`String[][]<java.lang.String[][]>` metaDataDefinition
+
+
+| **JSQLReplacer** (metaDataDefinition)
+| Instantiates a new JSQLReplacer for a given Database MetaData.
+|          :ref:`String[][]<java.lang.String[][]>` metaDataDefinition
+
+
+| **clearReplaceTables** ()
+| Clear the map of tables to be replaced.
+
+
+| **getReplaceTables** () → :ref:`String><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<java.lang.String>>`
+| Get the map of tables to be replaced.
+|          returns :ref:`String><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<java.lang.String>>`
+
+
+
+| **putReplaceTables** (replaceTables) → :ref:`JSQLReplacer<ai.starlake.transpiler.JSQLReplacer>`
+| Put a map of table names into the map of tables to be replaced.
+|          :ref:`String><java.util.Map<java.lang.String,java.lang.String>>` replaceTables
+|          returns :ref:`JSQLReplacer<ai.starlake.transpiler.JSQLReplacer>`
+
+
+
+| **putReplacementTable** (qualifiedTableName, replacementName) → :ref:`JSQLReplacer<ai.starlake.transpiler.JSQLReplacer>`
+| Put a table name into the map of tables to be replaced.
+|          :ref:`String<java.lang.String>` qualifiedTableName
+|          :ref:`String<java.lang.String>` replacementName
+|          returns :ref:`JSQLReplacer<ai.starlake.transpiler.JSQLReplacer>`
+
+
+
+| **replace** (st, replacementTables) → :ref:`Statement<net.sf.jsqlparser.statement.Statement>`
+| Replace physically existing table names in a given statement.
+|          :ref:`Statement<net.sf.jsqlparser.statement.Statement>` st
+|          :ref:`String><java.util.Map<java.lang.String,java.lang.String>>` replacementTables
+|          returns :ref:`Statement<net.sf.jsqlparser.statement.Statement>`
+
+
+
+| **replace** (st, replacementTables) → :ref:`Statement<net.sf.jsqlparser.statement.Statement>`
+| Replace physically existing table names in a given statement.
+|          :ref:`Statement<net.sf.jsqlparser.statement.Statement>` st
+|          :ref:`Table><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Table>>` replacementTables
+|          returns :ref:`Statement<net.sf.jsqlparser.statement.Statement>`
+
+
+
+| **replace** (sqlStr, replacementTables) → :ref:`Statement<net.sf.jsqlparser.statement.Statement>`
+| Replace physically existing table names in a given query.
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`String><java.util.Map<java.lang.String,java.lang.String>>` replacementTables
+|          returns :ref:`Statement<net.sf.jsqlparser.statement.Statement>`
+
+
+
+
+..  _ai.starlake.transpiler.JSQLResolver:
+
+=======================================================================
+JSQLResolver
+=======================================================================
+
+*extends:* :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>` 
+
+| **JSQLResolver** (metaData)
+|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData
+
+
+| **JSQLResolver** (connection)
+|          :ref:`Connection<java.sql.Connection>` connection
+
+
+| **JSQLResolver** (currentCatalogName, currentSchemaName, metaDataDefinition)
+|          :ref:`String<java.lang.String>` currentCatalogName
+|          :ref:`String<java.lang.String>` currentSchemaName
+|          :ref:`String[][]<java.lang.String[][]>` metaDataDefinition
+
+
+| **JSQLResolver** (metaDataDefinition)
+|          :ref:`String[][]<java.lang.String[][]>` metaDataDefinition
+
+
+| **setCommentFlag** (commentFlag) → :ref:`JSQLResolver<ai.starlake.transpiler.JSQLResolver>`
+|          boolean commentFlag
+|          returns :ref:`JSQLResolver<ai.starlake.transpiler.JSQLResolver>`
+
+
+
+| *@Override*
+| **visit** (withItem, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+|          :ref:`WithItem<?><net.sf.jsqlparser.statement.select.WithItem<?>>` withItem
+|          S context
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+
+
+
+| *@Override*
+| **visit** (select, metaData) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` select
+|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+
+
+
+| *@Override*
+| **visit** (setOperationList, context) → :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+|          :ref:`SetOperationList<net.sf.jsqlparser.statement.select.SetOperationList>` setOperationList
+|          S context
+|          returns :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>`
+
+
+
+| **getWhereColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getFlattendedWhereColumns** () → :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **setWhereColumns** (whereColumns) → :ref:`JSQLResolver<ai.starlake.transpiler.JSQLResolver>`
+|          :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>` whereColumns
+|          returns :ref:`JSQLResolver<ai.starlake.transpiler.JSQLResolver>`
+
+
+
+| **getWithColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getSelectColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getDeleteColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getUpdateColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getInsertColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getGroupByColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getHavingColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getJoinedOnColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getFlattenedJoinedOnColumns** () → :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getOrderByColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getFunctions** () → :ref:`Expression><java.util.List<net.sf.jsqlparser.expression.Expression>>`
+|          returns :ref:`Expression><java.util.List<net.sf.jsqlparser.expression.Expression>>`
+
+
+
+| **getFlatFunctionNames** () → :ref:`String><java.util.Set<java.lang.String>>`
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
+
+
+
+| **flatten** (columns) → :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>` columns
+|          returns :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **resolve** (st) → :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+| Resolves all the columns used at any clause of a SELECT, INSERT, UPDATE or DELETE statement for an empty CURRENT_CATALOG and an empty CURRENT_SCHEMA.
+|          :ref:`Statement<net.sf.jsqlparser.statement.Statement>` st
+|          returns :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **resolve** (sqlStr) → :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+| Resolves all the columns used at any clause of a SELECT statement for an empty CURRENT_CATALOG and an empty CURRENT_SCHEMA.
+|          :ref:`String<java.lang.String>` sqlStr
+|          returns :ref:`JdbcColumn><java.util.Set<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **resolveTables** (sqlStr) → :ref:`Statement<net.sf.jsqlparser.statement.Statement>`
+| Resolves all the actual physical tables used at any clause of a statement for an empty CURRENT_CATALOG and an empty CURRENT_SCHEMA.
+|          :ref:`String<java.lang.String>` sqlStr
+|          returns :ref:`Statement<net.sf.jsqlparser.statement.Statement>`
+
+
+
+
+..  _ai.starlake.transpiler.JSQLSchemaDiff:
+
+=======================================================================
+JSQLSchemaDiff
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| **JSQLSchemaDiff** (schemas, exceptions)
+|          :ref:`DBSchema><java.util.Collection<ai.starlake.transpiler.diff.DBSchema>>` schemas
+|          :ref:`Exception><java.util.List<java.lang.Exception>>` exceptions
+
+
+| **JSQLSchemaDiff** (schemas)
+|          :ref:`DBSchema><java.util.Collection<ai.starlake.transpiler.diff.DBSchema>>` schemas
+
+
+| **JSQLSchemaDiff** (schemas)
+|          :ref:`DBSchema[]<ai.starlake.transpiler.diff.DBSchema[]>` schemas
+
+
+| **getDiff** (sqlStr, qualifiedTargetTableName) → :ref:`Attribute><java.util.List<ai.starlake.transpiler.diff.Attribute>>`
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`String<java.lang.String>` qualifiedTargetTableName
+|          returns :ref:`Attribute><java.util.List<ai.starlake.transpiler.diff.Attribute>>`
+
+
+
+| **parseStruct** (expression) → :ref:`String[][]<java.lang.String[][]>`
+|          :ref:`String<java.lang.String>` expression
+|          returns :ref:`String[][]<java.lang.String[][]>`
+
+
+
+| **getDiff** (dialect, sqlStr, qualifiedTargetTableName) → :ref:`Attribute><java.util.List<ai.starlake.transpiler.diff.Attribute>>`
+|          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`String<java.lang.String>` qualifiedTargetTableName
+|          returns :ref:`Attribute><java.util.List<ai.starlake.transpiler.diff.Attribute>>`
+
+
+
+| **prepareConnection** () → :ref:`Connection<java.sql.Connection>`
+|          returns :ref:`Connection<java.sql.Connection>`
+
+
+
+| **rewriteQuery** (dialect, sqlStr, intoDialect) → :ref:`String<java.lang.String>`
+|          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` intoDialect
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **getDataType** (conn, sqlStr, columIndex) → :ref:`String<java.lang.String>`
+|          :ref:`Connection<java.sql.Connection>` conn
+|          :ref:`String<java.lang.String>` sqlStr
+|          int columIndex
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **getExceptions** () → :ref:`Exception><java.util.List<java.lang.Exception>>`
+|          returns :ref:`Exception><java.util.List<java.lang.Exception>>`
+
 
 
 
@@ -715,7 +1664,7 @@ JSQLMergeTranspiler
 JSQLSelectTranspiler
 =======================================================================
 
-*extends:* SelectDeParser *provides:* :ref:`BigQuerySelectTranspiler<ai.starlake.transpiler.bigquery.BigQuerySelectTranspiler>`, :ref:`DatabricksSelectTranspiler<ai.starlake.transpiler.databricks.DatabricksSelectTranspiler>`, :ref:`RedshiftSelectTranspiler<ai.starlake.transpiler.redshift.RedshiftSelectTranspiler>`, :ref:`SnowflakeSelectTranspiler<ai.starlake.transpiler.snowflake.SnowflakeSelectTranspiler>` 
+*extends:* :ref:`SelectDeParser<net.sf.jsqlparser.util.deparser.SelectDeParser>` *provides:* :ref:`BigQuerySelectTranspiler<ai.starlake.transpiler.bigquery.BigQuerySelectTranspiler>`, :ref:`DatabricksSelectTranspiler<ai.starlake.transpiler.databricks.DatabricksSelectTranspiler>`, :ref:`RedshiftSelectTranspiler<ai.starlake.transpiler.redshift.RedshiftSelectTranspiler>`, :ref:`SnowflakeSelectTranspiler<ai.starlake.transpiler.snowflake.SnowflakeSelectTranspiler>` 
 
 
                 Instantiates a new transpiler.
@@ -724,31 +1673,39 @@ JSQLSelectTranspiler
                 |          :ref:`StringBuilder<java.lang.StringBuilder>` resultBuilder
 
             | **JSQLSelectTranspiler** (expressionDeparserClass, builder)
-|          :ref:`Class<java.lang.Class>` expressionDeparserClass
+|          :ref:`ExpressionDeParser><java.lang.Class<? extends net.sf.jsqlparser.util.deparser.ExpressionDeParser>>` expressionDeparserClass
 |          :ref:`StringBuilder<java.lang.StringBuilder>` builder
 
 
 | **getResultBuilder** () → :ref:`StringBuilder<java.lang.StringBuilder>`
 | Gets result builder.
-|          returns :ref:`StringBuilder<java.lang.StringBuilder>`  | the result builder
+|          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
 | *@Override*
 | **visit** (top)
-|          Top top
+|          :ref:`Top<net.sf.jsqlparser.statement.select.Top>` top
 
 
 | *@Override*
 | **visit** (tableFunction, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          TableFunction tableFunction
+|          :ref:`TableFunction<net.sf.jsqlparser.statement.select.TableFunction>` tableFunction
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
 | **visit** (plainSelect, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          PlainSelect plainSelect
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` plainSelect
+|          S params
+|          returns :ref:`StringBuilder<java.lang.StringBuilder>`
+
+
+
+| *@SuppressWarnings*
+| **visit** (select, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
+|          :ref:`ParenthesedSelect<net.sf.jsqlparser.statement.select.ParenthesedSelect>` select
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -756,7 +1713,7 @@ JSQLSelectTranspiler
 
 | *@Override*
 | **visit** (table, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Table table
+|          :ref:`Table<net.sf.jsqlparser.schema.Table>` table
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -764,9 +1721,24 @@ JSQLSelectTranspiler
 
 | *@Override*
 | **visit** (selectItem, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          <any> selectItem
+|          :ref:`SelectItem<?><net.sf.jsqlparser.statement.select.SelectItem<?>>` selectItem
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
+
+
+
+| *@Override*
+| **visit** (fromQuery, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
+|          :ref:`FromQuery<net.sf.jsqlparser.statement.piped.FromQuery>` fromQuery
+|          S context
+|          returns :ref:`StringBuilder<java.lang.StringBuilder>`
+
+
+
+| **visit** (selectPipeOperator, select) → :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
+|          :ref:`SelectPipeOperator<net.sf.jsqlparser.statement.piped.SelectPipeOperator>` selectPipeOperator
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` select
+|          returns :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>`
 
 
 
@@ -777,21 +1749,21 @@ JSQLSelectTranspiler
 JSQLTranspiler
 =======================================================================
 
-*extends:* StatementDeParser *provides:* :ref:`BigQueryTranspiler<ai.starlake.transpiler.bigquery.BigQueryTranspiler>`, :ref:`DatabricksTranspiler<ai.starlake.transpiler.databricks.DatabricksTranspiler>`, :ref:`RedshiftTranspiler<ai.starlake.transpiler.redshift.RedshiftTranspiler>`, :ref:`SnowflakeTranspiler<ai.starlake.transpiler.snowflake.SnowflakeTranspiler>` 
+*extends:* :ref:`StatementDeParser<net.sf.jsqlparser.util.deparser.StatementDeParser>` *provides:* :ref:`BigQueryTranspiler<ai.starlake.transpiler.bigquery.BigQueryTranspiler>`, :ref:`DatabricksTranspiler<ai.starlake.transpiler.databricks.DatabricksTranspiler>`, :ref:`RedshiftTranspiler<ai.starlake.transpiler.redshift.RedshiftTranspiler>`, :ref:`SnowflakeTranspiler<ai.starlake.transpiler.snowflake.SnowflakeTranspiler>` 
 
 | The type JSQLTranspiler.
 
 
-                |          :ref:`Class<java.lang.Class>` selectTranspilerClass
+                |          :ref:`JSQLSelectTranspiler><java.lang.Class<? extends ai.starlake.transpiler.JSQLSelectTranspiler>>` selectTranspilerClass
 
-                |          :ref:`Class<java.lang.Class>` expressionTranspilerClass
+                |          :ref:`JSQLExpressionTranspiler><java.lang.Class<? extends ai.starlake.transpiler.JSQLExpressionTranspiler>>` expressionTranspilerClass
 
                 
                 
                 
                 
             | **JSQLTranspiler** (parameters)
-|          :ref:`Map<java.util.Map>` parameters
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
 
 
 | **JSQLTranspiler** ()
@@ -800,91 +1772,91 @@ JSQLTranspiler
 | *@SuppressWarnings*
 | **transpileQuery** (qryStr, dialect, parameters, executorService, consumer) → :ref:`String<java.lang.String>`
 | Transpile a query string in the defined dialect into DuckDB compatible SQL.
-|          :ref:`String<java.lang.String>` qryStr  | qryStr the original query string
-|          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect  | dialect the dialect of the query string
-|          :ref:`Map<java.util.Map>` parameters  | parameters the map of substitution key/value pairs (can be empty)
-|          :ref:`ExecutorService<java.util.concurrent.ExecutorService>` executorService  | executorService the ExecutorService to use for running and observing JSQLParser
-|          :ref:`Consumer<java.util.function.Consumer>` consumer  | consumer the parser configuration to use for the parsing
-|          returns :ref:`String<java.lang.String>`  | the transformed query string
+|          :ref:`String<java.lang.String>` qryStr
+|          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+|          :ref:`ExecutorService<java.util.concurrent.ExecutorService>` executorService
+|          :ref:`CCJSqlParser><java.util.function.Consumer<net.sf.jsqlparser.parser.CCJSqlParser>>` consumer
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | **transpileQuery** (qryStr, dialect, parameters) → :ref:`String<java.lang.String>`
 | Transpile a query string in the defined dialect into DuckDB compatible SQL.
-|          :ref:`String<java.lang.String>` qryStr  | qryStr the original query string
-|          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect  | dialect the dialect of the query string
-|          :ref:`Map<java.util.Map>` parameters  | parameters the map of substitution key/value pairs (can be empty)
-|          returns :ref:`String<java.lang.String>`  | the transformed query string
+|          :ref:`String<java.lang.String>` qryStr
+|          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | **transpileQuery** (qryStr, dialect) → :ref:`String<java.lang.String>`
 | Transpile a query string in the defined dialect into DuckDB compatible SQL.
-|          :ref:`String<java.lang.String>` qryStr  | qryStr the original query string
-|          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect  | dialect the dialect of the query string
-|          returns :ref:`String<java.lang.String>`  | the transformed query string
+|          :ref:`String<java.lang.String>` qryStr
+|          :ref:`Dialect<ai.starlake.transpiler.JSQLTranspiler.Dialect>` dialect
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | *@SuppressWarnings*
 | **transpile** (sqlStr, parameters, outputFile, executorService, consumer)
 | Transpile a query string from a file or STDIN and write the transformed query string into a file or STDOUT. Using the provided Executor Service for observing the parser.
-|          :ref:`String<java.lang.String>` sqlStr  | sqlStr the original query string
-|          :ref:`Map<java.util.Map>` parameters  | parameters the map of substitution key/value pairs (can be empty)
-|          :ref:`File<java.io.File>` outputFile  | outputFile the output file, writing to STDOUT when not defined
-|          :ref:`ExecutorService<java.util.concurrent.ExecutorService>` executorService  | executorService the ExecutorService to use for running and observing JSQLParser
-|          :ref:`Consumer<java.util.function.Consumer>` consumer  | consumer the parser configuration to use for the parsing
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+|          :ref:`File<java.io.File>` outputFile
+|          :ref:`ExecutorService<java.util.concurrent.ExecutorService>` executorService
+|          :ref:`CCJSqlParser><java.util.function.Consumer<net.sf.jsqlparser.parser.CCJSqlParser>>` consumer
 
 
 | **transpile** (sqlStr, parameters, outputFile) → boolean
 | Transpile a query string from a file or STDIN and write the transformed query string into a file or STDOUT.
-|          :ref:`String<java.lang.String>` sqlStr  | sqlStr the original query string
-|          :ref:`Map<java.util.Map>` parameters  | parameters the map of substitution key/value pairs (can be empty)
-|          :ref:`File<java.io.File>` outputFile  | outputFile the output file, writing to STDOUT when not defined
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+|          :ref:`File<java.io.File>` outputFile
 |          returns boolean
 
 
 
 | **transpile** (sqlStr, outputFile) → boolean
 | Transpile a query string from a file or STDIN and write the transformed query string into a file or STDOUT.
-|          :ref:`String<java.lang.String>` sqlStr  | sqlStr the original query string
-|          :ref:`File<java.io.File>` outputFile  | outputFile the output file, writing to STDOUT when not defined
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`File<java.io.File>` outputFile
 |          returns boolean
 
 
 
 | **readResource** (url) → :ref:`String<java.lang.String>`
 | Read the text content from a resource file.
-|          :ref:`URL<java.net.URL>` url  | url the URL of the resource file
-|          returns :ref:`String<java.lang.String>`  | the text content
+|          :ref:`URL<java.net.URL>` url
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | **readResource** (clazz, suffix) → :ref:`String<java.lang.String>`
 | Read the text content from a resource file relative to a particular class' suffix
-|          :ref:`Class<java.lang.Class>` clazz  | clazz the Class which defines the classpath URL of the resource file
-|          :ref:`String<java.lang.String>` suffix  | suffix the Class Name suffix used for naming the resource file
-|          returns :ref:`String<java.lang.String>`  | the text content
+|          :ref:`Class<?><java.lang.Class<?>>` clazz
+|          :ref:`String<java.lang.String>` suffix
+|          returns :ref:`String<java.lang.String>`
 
 
 
-| **getMacros** (executorService, consumer) → :ref:`Collection<java.util.Collection>`
+| **getMacros** (executorService, consumer) → :ref:`String><java.util.Collection<java.lang.String>>`
 | Get the Macro `CREATE FUNCTION` statements as a list of text, using the provided ExecutorService to monitor the parser
-|          :ref:`ExecutorService<java.util.concurrent.ExecutorService>` executorService  | executorService the ExecutorService to use for running and observing JSQLParser
-|          :ref:`Consumer<java.util.function.Consumer>` consumer  | consumer the parser configuration to use for the parsing
-|          returns :ref:`Collection<java.util.Collection>`  | the list of statement texts
+|          :ref:`ExecutorService<java.util.concurrent.ExecutorService>` executorService
+|          :ref:`CCJSqlParser><java.util.function.Consumer<net.sf.jsqlparser.parser.CCJSqlParser>>` consumer
+|          returns :ref:`String><java.util.Collection<java.lang.String>>`
 
 
 
-| **getMacros** () → :ref:`Collection<java.util.Collection>`
+| **getMacros** () → :ref:`String><java.util.Collection<java.lang.String>>`
 | Get the Macro `CREATE FUNCTION` statements as a list of text
-|          returns :ref:`Collection<java.util.Collection>`  | the list of statement texts
+|          returns :ref:`String><java.util.Collection<java.lang.String>>`
 
 
 
-| **getMacroArray** () → :ref:`String<java.lang.String>`
+| **getMacroArray** () → :ref:`String[]<java.lang.String[]>`
 | Get the Macro `CREATE FUNCTION` statements as an Array of text
-|          returns :ref:`String<java.lang.String>`  | the array of statement texts
+|          returns :ref:`String[]<java.lang.String[]>`
 
 
 
@@ -895,74 +1867,95 @@ JSQLTranspiler
 
 | **transpile** (statement, parameters) → :ref:`String<java.lang.String>`
 | Rewrite a given SQL Statement into a text representation.
-|          Statement statement  | statement the statement
-|          :ref:`Map<java.util.Map>` parameters
-|          returns :ref:`String<java.lang.String>`  | the string
+|          :ref:`Statement<net.sf.jsqlparser.statement.Statement>` statement
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | **transpileBigQuery** (statement, parameters) → :ref:`String<java.lang.String>`
 | Rewrite a given BigQuery SQL Statement into a text representation.
-|          Statement statement  | statement the statement
-|          :ref:`Map<java.util.Map>` parameters
-|          returns :ref:`String<java.lang.String>`  | the string
+|          :ref:`Statement<net.sf.jsqlparser.statement.Statement>` statement
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | **transpileDatabricks** (statement, parameters) → :ref:`String<java.lang.String>`
 | Rewrite a given DataBricks SQL Statement into a text representation.
-|          Statement statement  | statement the statement
-|          :ref:`Map<java.util.Map>` parameters
-|          returns :ref:`String<java.lang.String>`  | the string
+|          :ref:`Statement<net.sf.jsqlparser.statement.Statement>` statement
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | **transpileSnowflake** (statement, parameters) → :ref:`String<java.lang.String>`
 | Rewrite a given Snowflake SQL Statement into a text representation.
-|          Statement statement  | statement the statement
-|          :ref:`Map<java.util.Map>` parameters
-|          returns :ref:`String<java.lang.String>`  | the string
+|          :ref:`Statement<net.sf.jsqlparser.statement.Statement>` statement
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | **transpileAmazonRedshift** (statement, parameters) → :ref:`String<java.lang.String>`
 | Rewrite a given Redshift SQL Statement into a text representation.
-|          Statement statement  | statement the statement
-|          :ref:`Map<java.util.Map>` parameters
-|          returns :ref:`String<java.lang.String>`  | the string
+|          :ref:`Statement<net.sf.jsqlparser.statement.Statement>` statement
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **unpipe** (sqlStr, executorService, consumer) → :ref:`String<java.lang.String>`
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`ExecutorService<java.util.concurrent.ExecutorService>` executorService
+|          :ref:`CCJSqlParser><java.util.function.Consumer<net.sf.jsqlparser.parser.CCJSqlParser>>` consumer
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **unpipe** (sqlStr, consumer) → :ref:`String<java.lang.String>`
+|          :ref:`String<java.lang.String>` sqlStr
+|          :ref:`CCJSqlParser><java.util.function.Consumer<net.sf.jsqlparser.parser.CCJSqlParser>>` consumer
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **unpipe** (sqlStr) → :ref:`String<java.lang.String>`
+|          :ref:`String<java.lang.String>` sqlStr
+|          returns :ref:`String<java.lang.String>`
 
 
 
 | **visit** (select, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Select select
+|          :ref:`Select<net.sf.jsqlparser.statement.select.Select>` select
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
 | **visit** (insert, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Insert insert
+|          :ref:`Insert<net.sf.jsqlparser.statement.insert.Insert>` insert
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
 | **visit** (update, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Update update
+|          :ref:`Update<net.sf.jsqlparser.statement.update.Update>` update
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
 | **visit** (delete, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Delete delete
+|          :ref:`Delete<net.sf.jsqlparser.statement.delete.Delete>` delete
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
 | **visit** (merge, context) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Merge merge
+|          :ref:`Merge<net.sf.jsqlparser.statement.merge.Merge>` merge
 |          S context
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -975,7 +1968,85 @@ JSQLTranspiler
 JSQLUpdateTranspiler
 =======================================================================
 
-*extends:* UpdateDeParser 
+*extends:* :ref:`UpdateDeParser<net.sf.jsqlparser.util.deparser.UpdateDeParser>` 
+
+
+                |          :ref:`ExpressionVisitor<net.sf.jsqlparser.expression.ExpressionVisitor>` expressionVisitor
+
+                |          :ref:`StringBuilder<java.lang.StringBuilder>` builder
+
+            
+..  _ai.starlake.transpiler.SchemaNotFoundException:
+
+=======================================================================
+SchemaNotFoundException
+=======================================================================
+
+*extends:* :ref:`RuntimeException<java.lang.RuntimeException>` 
+
+| **SchemaNotFoundException** (SchemaName, cause)
+|          :ref:`String<java.lang.String>` SchemaName
+|          :ref:`Throwable<java.lang.Throwable>` cause
+
+
+| **SchemaNotFoundException** (SchemaName)
+|          :ref:`String<java.lang.String>` SchemaName
+
+
+| **getSchemaName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+
+..  _ai.starlake.transpiler.TableNotDeclaredException:
+
+=======================================================================
+TableNotDeclaredException
+=======================================================================
+
+*extends:* :ref:`RuntimeException<java.lang.RuntimeException>` 
+
+| **TableNotDeclaredException** (tableName, tableNames, cause)
+|          :ref:`String<java.lang.String>` tableName
+|          :ref:`String><java.util.Collection<java.lang.String>>` tableNames
+|          :ref:`Throwable<java.lang.Throwable>` cause
+
+
+| **TableNotDeclaredException** (tableName, tableNames)
+|          :ref:`String<java.lang.String>` tableName
+|          :ref:`String><java.util.Collection<java.lang.String>>` tableNames
+
+
+| **getTableName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+
+..  _ai.starlake.transpiler.TableNotFoundException:
+
+=======================================================================
+TableNotFoundException
+=======================================================================
+
+*extends:* :ref:`RuntimeException<java.lang.RuntimeException>` 
+
+| **TableNotFoundException** (tableName, schemaNames, cause)
+|          :ref:`String<java.lang.String>` tableName
+|          :ref:`String><java.util.Collection<java.lang.String>>` schemaNames
+|          :ref:`Throwable<java.lang.Throwable>` cause
+
+
+| **TableNotFoundException** (tableName, schemaNames)
+|          :ref:`String<java.lang.String>` tableName
+|          :ref:`String><java.util.Collection<java.lang.String>>` schemaNames
+
+
+| **getTableName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
 
 
 ..  _ai.starlake.transpiler.bigquery:
@@ -992,7 +2063,7 @@ BigQueryExpressionTranspiler
 *extends:* :ref:`JSQLExpressionTranspiler<ai.starlake.transpiler.JSQLExpressionTranspiler>` 
 
 | **BigQueryExpressionTranspiler** (selectDeParser, buffer)
-|          SelectDeParser selectDeParser
+|          :ref:`SelectDeParser<net.sf.jsqlparser.util.deparser.SelectDeParser>` selectDeParser
 |          :ref:`StringBuilder<java.lang.StringBuilder>` buffer
 
 
@@ -1006,13 +2077,13 @@ BigQuerySelectTranspiler
 *extends:* :ref:`JSQLSelectTranspiler<ai.starlake.transpiler.JSQLSelectTranspiler>` 
 
 | **BigQuerySelectTranspiler** (expressionDeparserClass, builder)
-|          :ref:`Class<java.lang.Class>` expressionDeparserClass
+|          :ref:`ExpressionDeParser><java.lang.Class<? extends net.sf.jsqlparser.util.deparser.ExpressionDeParser>>` expressionDeparserClass
 |          :ref:`StringBuilder<java.lang.StringBuilder>` builder
 
 
 | *@Override*
 | **visit** (select, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          PlainSelect select
+|          :ref:`PlainSelect<net.sf.jsqlparser.statement.select.PlainSelect>` select
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -1028,7 +2099,7 @@ BigQueryTranspiler
 *extends:* :ref:`JSQLTranspiler<ai.starlake.transpiler.JSQLTranspiler>` 
 
 | **BigQueryTranspiler** (parameters)
-|          :ref:`Map<java.util.Map>` parameters
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
 
 
 
@@ -1046,26 +2117,26 @@ DatabricksExpressionTranspiler
 *extends:* :ref:`RedshiftExpressionTranspiler<ai.starlake.transpiler.redshift.RedshiftExpressionTranspiler>` 
 
 | **DatabricksExpressionTranspiler** (selectDeParser, buffer)
-|          SelectDeParser selectDeParser
+|          :ref:`SelectDeParser<net.sf.jsqlparser.util.deparser.SelectDeParser>` selectDeParser
 |          :ref:`StringBuilder<java.lang.StringBuilder>` buffer
 
 
-| **toDateTimePart** (expression) → Expression
-|          Expression expression
-|          returns Expression
+| **toDateTimePart** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| **castInterval** (e1, e2) → Expression
-|          Expression e1
-|          Expression e2
-|          returns Expression
+| **castInterval** (e1, e2) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` e1
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` e2
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
 | *@Override*,| *@SuppressWarnings*
 | **visit** (function, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Function function
+|          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -1073,7 +2144,7 @@ DatabricksExpressionTranspiler
 
 | *@Override*
 | **visit** (function, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          AnalyticExpression function
+|          :ref:`AnalyticExpression<net.sf.jsqlparser.expression.AnalyticExpression>` function
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -1081,15 +2152,15 @@ DatabricksExpressionTranspiler
 
 | *@Override*
 | **visit** (column, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Column column
+|          :ref:`Column<net.sf.jsqlparser.schema.Column>` column
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
-| **rewriteType** (colDataType) → ColDataType
-|          ColDataType colDataType
-|          returns ColDataType
+| **rewriteType** (colDataType) → :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>`
+|          :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>` colDataType
+|          returns :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>`
 
 
 
@@ -1103,7 +2174,7 @@ DatabricksSelectTranspiler
 *extends:* :ref:`JSQLSelectTranspiler<ai.starlake.transpiler.JSQLSelectTranspiler>` 
 
 | **DatabricksSelectTranspiler** (expressionDeparserClass, builder)
-|          :ref:`Class<java.lang.Class>` expressionDeparserClass
+|          :ref:`ExpressionDeParser><java.lang.Class<? extends net.sf.jsqlparser.util.deparser.ExpressionDeParser>>` expressionDeparserClass
 |          :ref:`StringBuilder<java.lang.StringBuilder>` builder
 
 
@@ -1117,7 +2188,213 @@ DatabricksTranspiler
 *extends:* :ref:`JSQLTranspiler<ai.starlake.transpiler.JSQLTranspiler>` 
 
 | **DatabricksTranspiler** (parameters)
-|          :ref:`Map<java.util.Map>` parameters
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
+
+
+
+..  _ai.starlake.transpiler.diff:
+***********************************************************************
+
+***********************************************************************
+
+..  _ai.starlake.transpiler.diff.AttributeStatus
+
+=======================================================================
+AttributeStatus
+=======================================================================
+
+[ADDED, REMOVED, MODIFIED, UNCHANGED]
+
+
+..  _ai.starlake.transpiler.diff.Attribute:
+
+=======================================================================
+Attribute
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| **Attribute** (name, type, array, attributes, status)
+|          :ref:`String<java.lang.String>` name
+|          :ref:`String<java.lang.String>` type
+|          boolean array
+|          :ref:`Attribute><java.util.Collection<ai.starlake.transpiler.diff.Attribute>>` attributes
+|          :ref:`AttributeStatus<ai.starlake.transpiler.diff.AttributeStatus>` status
+
+
+| **Attribute** (name, type)
+|          :ref:`String<java.lang.String>` name
+|          :ref:`String<java.lang.String>` type
+
+
+| **Attribute** (name, type)
+|          :ref:`String<java.lang.String>` name
+|          :ref:`Class<?><java.lang.Class<?>>` type
+
+
+| **Attribute** (name, type, status)
+|          :ref:`String<java.lang.String>` name
+|          :ref:`String<java.lang.String>` type
+|          :ref:`AttributeStatus<ai.starlake.transpiler.diff.AttributeStatus>` status
+
+
+| **Attribute** (name, type, status)
+|          :ref:`String<java.lang.String>` name
+|          :ref:`Class<?><java.lang.Class<?>>` type
+|          :ref:`AttributeStatus<ai.starlake.transpiler.diff.AttributeStatus>` status
+
+
+| **Attribute** ()
+
+
+| **isNestedField** () → boolean
+|          returns boolean
+
+
+
+| **isArray** () → boolean
+|          returns boolean
+
+
+
+| **getName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **getType** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **getStatus** () → :ref:`AttributeStatus<ai.starlake.transpiler.diff.AttributeStatus>`
+|          returns :ref:`AttributeStatus<ai.starlake.transpiler.diff.AttributeStatus>`
+
+
+
+| **setStatus** (status) → :ref:`Attribute<ai.starlake.transpiler.diff.Attribute>`
+|          :ref:`AttributeStatus<ai.starlake.transpiler.diff.AttributeStatus>` status
+|          returns :ref:`Attribute<ai.starlake.transpiler.diff.Attribute>`
+
+
+
+| **getAttributes** () → :ref:`Attribute><java.util.ArrayList<ai.starlake.transpiler.diff.Attribute>>`
+|          returns :ref:`Attribute><java.util.ArrayList<ai.starlake.transpiler.diff.Attribute>>`
+
+
+
+| **setAttributes** (attributes) → :ref:`Attribute<ai.starlake.transpiler.diff.Attribute>`
+|          :ref:`Attribute><java.util.ArrayList<ai.starlake.transpiler.diff.Attribute>>` attributes
+|          returns :ref:`Attribute<ai.starlake.transpiler.diff.Attribute>`
+
+
+
+| *@Override*
+| **equals** (o) → boolean
+|          :ref:`Object<java.lang.Object>` o
+|          returns boolean
+
+
+
+| *@Override*
+| **hashCode** () → int
+|          returns int
+
+
+
+| *@Override*
+| **toString** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+
+..  _ai.starlake.transpiler.diff.DBSchema:
+
+=======================================================================
+DBSchema
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| **DBSchema** (catalogName, schemaName)
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`String<java.lang.String>` schemaName
+
+
+| **DBSchema** (catalogName, schemaName, tables)
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`String<java.lang.String>` schemaName
+|          :ref:`Attribute>><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<java.util.Collection<ai.starlake.transpiler.diff.Attribute>>>` tables
+
+
+| **DBSchema** (catalogName, schemaName, tableName, attributes)
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`String<java.lang.String>` schemaName
+|          :ref:`String<java.lang.String>` tableName
+|          :ref:`Attribute><java.util.Collection<ai.starlake.transpiler.diff.Attribute>>` attributes
+
+
+| **DBSchema** (catalogName, schemaName, tableName, attributes)
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`String<java.lang.String>` schemaName
+|          :ref:`String<java.lang.String>` tableName
+|          :ref:`Attribute[]<ai.starlake.transpiler.diff.Attribute[]>` attributes
+
+
+| **put** (tableName, attributes) → :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+|          :ref:`String<java.lang.String>` tableName
+|          :ref:`Attribute[]<ai.starlake.transpiler.diff.Attribute[]>` attributes
+|          returns :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+
+
+
+| **getCatalogName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **setCatalogName** (catalogName) → :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+|          :ref:`String<java.lang.String>` catalogName
+|          returns :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+
+
+
+| **getSchemaName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **setSchemaName** (schemaName) → :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+|          :ref:`String<java.lang.String>` schemaName
+|          returns :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+
+
+
+| **getTables** () → :ref:`Attribute>><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<java.util.Collection<ai.starlake.transpiler.diff.Attribute>>>`
+|          returns :ref:`Attribute>><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<java.util.Collection<ai.starlake.transpiler.diff.Attribute>>>`
+
+
+
+| **setTables** (tables) → :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+|          :ref:`Attribute>><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<java.util.Collection<ai.starlake.transpiler.diff.Attribute>>>` tables
+|          returns :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+
+
+
+
+..  _ai.starlake.transpiler.diff.DBSchemaDiffApi:
+=======================================================================
+DBSchemaDiffApi
+=======================================================================
+
+*provides:*  
+
+| **diff** (sql, existingSchema) → :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+|          :ref:`String<java.lang.String>` sql
+|          :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>` existingSchema
+|          returns :ref:`DBSchema<ai.starlake.transpiler.diff.DBSchema>`
+
 
 
 
@@ -1135,13 +2412,13 @@ RedshiftExpressionTranspiler
 *extends:* :ref:`JSQLExpressionTranspiler<ai.starlake.transpiler.JSQLExpressionTranspiler>` *provides:* :ref:`DatabricksExpressionTranspiler<ai.starlake.transpiler.databricks.DatabricksExpressionTranspiler>`, :ref:`SnowflakeExpressionTranspiler<ai.starlake.transpiler.snowflake.SnowflakeExpressionTranspiler>` 
 
 | **RedshiftExpressionTranspiler** (deParser, buffer)
-|          SelectDeParser deParser
+|          :ref:`SelectDeParser<net.sf.jsqlparser.util.deparser.SelectDeParser>` deParser
 |          :ref:`StringBuilder<java.lang.StringBuilder>` buffer
 
 
 | *@Override*,| *@SuppressWarnings*
 | **visit** (function, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Function function
+|          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -1149,14 +2426,26 @@ RedshiftExpressionTranspiler
 
 | *@Override*
 | **visit** (function, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          AnalyticExpression function
+|          :ref:`AnalyticExpression<net.sf.jsqlparser.expression.AnalyticExpression>` function
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
-| **visit** (column, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Column column
+
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expr1
+
+                |          :ref:`String<java.lang.String>` type1
+
+                |          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expr2
+
+                |          :ref:`String<java.lang.String>` type2
+
+                |          returns :ref:`CaseExpression<net.sf.jsqlparser.expression.CaseExpression>`
+
+
+            | **visit** (column, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
+|          :ref:`Column<net.sf.jsqlparser.schema.Column>` column
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -1168,9 +2457,9 @@ RedshiftExpressionTranspiler
 
 
 
-| **rewriteType** (colDataType) → ColDataType
-|          ColDataType colDataType
-|          returns ColDataType
+| **rewriteType** (colDataType) → :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>`
+|          :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>` colDataType
+|          returns :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>`
 
 
 
@@ -1184,7 +2473,7 @@ RedshiftSelectTranspiler
 *extends:* :ref:`JSQLSelectTranspiler<ai.starlake.transpiler.JSQLSelectTranspiler>` 
 
 | **RedshiftSelectTranspiler** (expressionDeparserClass, builder)
-|          :ref:`Class<java.lang.Class>` expressionDeparserClass
+|          :ref:`ExpressionDeParser><java.lang.Class<? extends net.sf.jsqlparser.util.deparser.ExpressionDeParser>>` expressionDeparserClass
 |          :ref:`StringBuilder<java.lang.StringBuilder>` builder
 
 
@@ -1198,7 +2487,7 @@ RedshiftTranspiler
 *extends:* :ref:`JSQLTranspiler<ai.starlake.transpiler.JSQLTranspiler>` 
 
 | **RedshiftTranspiler** (parameters)
-|          :ref:`Map<java.util.Map>` parameters
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
 
 
 
@@ -1207,13 +2496,65 @@ RedshiftTranspiler
 ma
 ***********************************************************************
 
-..  _ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap:
+..  _ai.starlake.transpiler.schema.JdbcMetaData.ErrorMode
+
+=======================================================================
+ErrorMode
+=======================================================================
+
+[STRICT, LENIENT, IGNORE]
+
+
+..  _ai.starlake.transpiler.schema.JdbcUtils.DatabaseSpecific
+
+=======================================================================
+DatabaseSpecific
+=======================================================================
+
+[ORACLE, POSTGRESQL, MSSQL, MYSQL, SNOWFLAKE, DUCKCB, H2, OTHER]
+
+| Used for detecting RDBMS type and DB specific handling
+
+
+..  _ai.starlake.transpiler.schema.CaseInsensitiveConcurrentSet:
+
+=======================================================================
+CaseInsensitiveConcurrentSet
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| **newSet** () → :ref:`String><java.util.Set<java.lang.String>>`
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
+
+
+
+| **add** (s) → boolean
+|          :ref:`String<java.lang.String>` s
+|          returns boolean
+
+
+
+| **contains** (s) → boolean
+|          :ref:`String<java.lang.String>` s
+|          returns boolean
+
+
+
+| **remove** (s) → boolean
+|          :ref:`String<java.lang.String>` s
+|          returns boolean
+
+
+
+
+..  _ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap&lt;V&gt;:
 
 =======================================================================
 CaseInsensitiveLinkedHashMap
 =======================================================================
 
-*extends:* :ref:`LinkedHashMap<java.util.LinkedHashMap>` 
+*extends:* :ref:`String,V><java.util.LinkedHashMap<java.lang.String,V>>` 
 
 | A Case insensitive linked hash map preserving the original spelling of the keys. It can be used for looking up a database's schemas, tables, columns, indices and constraints.
 
@@ -1222,8 +2563,8 @@ CaseInsensitiveLinkedHashMap
 
 | **unquote** (quotedIdentifier) → :ref:`String<java.lang.String>`
 | Removes leading and trailing quotes from a SQL quoted identifier
-|          :ref:`String<java.lang.String>` quotedIdentifier  | quotedIdentifier the quoted identifier
-|          returns :ref:`String<java.lang.String>`  | the pure identifier without quotes
+|          :ref:`String<java.lang.String>` quotedIdentifier
+|          returns :ref:`String<java.lang.String>`
 
 
 
@@ -1233,6 +2574,11 @@ CaseInsensitiveLinkedHashMap
 |          V value
 |          returns V
 
+
+
+| *@Override*
+| **putAll** (m)
+|          :ref:`String,? extends V><java.util.Map<? extends java.lang.String,? extends V>>` m
 
 
 | *@Override*
@@ -1261,14 +2607,30 @@ CaseInsensitiveLinkedHashMap
 
 
 | *@Override*
-| **entrySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **entrySet** () → :ref:`String,V>><java.util.Set<java.util.Map.Entry<java.lang.String,V>>>`
+|          returns :ref:`String,V>><java.util.Set<java.util.Map.Entry<java.lang.String,V>>>`
 
 
 
 | *@Override*
-| **keySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **keySet** () → :ref:`String><java.util.Set<java.lang.String>>`
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
+
+
+
+| *@Override*
+| **putIfAbsent** (key, value) → V
+|          :ref:`String<java.lang.String>` key
+|          V value
+|          returns V
+
+
+
+| *@Override*
+| **getOrDefault** (key, defaultValue) → V
+|          :ref:`Object<java.lang.Object>` key
+|          V defaultValue
+|          returns V
 
 
 
@@ -1279,16 +2641,25 @@ CaseInsensitiveLinkedHashMap
 JdbcCatalog
 =======================================================================
 
-*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`Comparable<java.lang.Comparable>` 
+*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`JdbcCatalog><java.lang.Comparable<ai.starlake.transpiler.schema.JdbcCatalog>>` 
 
 | **JdbcCatalog** (tableCatalog, catalogSeparator)
 |          :ref:`String<java.lang.String>` tableCatalog
 |          :ref:`String<java.lang.String>` catalogSeparator
 
 
-| **getCatalogs** (metaData) → :ref:`Collection<java.util.Collection>`
+| **JdbcCatalog** ()
+
+
+| **getCatalogsFromInformationSchema** (conn) → :ref:`JdbcCatalog><java.util.Collection<ai.starlake.transpiler.schema.JdbcCatalog>>`
+|          :ref:`Connection<java.sql.Connection>` conn
+|          returns :ref:`JdbcCatalog><java.util.Collection<ai.starlake.transpiler.schema.JdbcCatalog>>`
+
+
+
+| **getCatalogs** (metaData) → :ref:`JdbcCatalog><java.util.Collection<ai.starlake.transpiler.schema.JdbcCatalog>>`
 |          :ref:`DatabaseMetaData<java.sql.DatabaseMetaData>` metaData
-|          returns :ref:`Collection<java.util.Collection>`
+|          returns :ref:`JdbcCatalog><java.util.Collection<ai.starlake.transpiler.schema.JdbcCatalog>>`
 
 
 
@@ -1356,17 +2727,17 @@ JdbcCatalog
 
 | **compute** (key, remappingFunction) → :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcSchema><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcSchema,? extends ai.starlake.transpiler.schema.JdbcSchema>>` remappingFunction
 |          returns :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
 
 
 
 | **putAll** (m)
-|          :ref:`Map<java.util.Map>` m
+|          :ref:`JdbcSchema><java.util.Map<? extends java.lang.String,? extends ai.starlake.transpiler.schema.JdbcSchema>>` m
 
 
-| **values** () → :ref:`Collection<java.util.Collection>`
-|          returns :ref:`Collection<java.util.Collection>`
+| **values** () → :ref:`JdbcSchema><java.util.Collection<ai.starlake.transpiler.schema.JdbcSchema>>`
+|          returns :ref:`JdbcSchema><java.util.Collection<ai.starlake.transpiler.schema.JdbcSchema>>`
 
 
 
@@ -1379,7 +2750,7 @@ JdbcCatalog
 
 
 | **forEach** (action)
-|          :ref:`BiConsumer<java.util.function.BiConsumer>` action
+|          :ref:`JdbcSchema><java.util.function.BiConsumer<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcSchema>>` action
 
 
 | **getOrDefault** (key, defaultValue) → :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
@@ -1398,18 +2769,18 @@ JdbcCatalog
 
 | **computeIfPresent** (key, remappingFunction) → :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcSchema><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcSchema,? extends ai.starlake.transpiler.schema.JdbcSchema>>` remappingFunction
 |          returns :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
 
 
 
 | **replaceAll** (function)
-|          :ref:`BiFunction<java.util.function.BiFunction>` function
+|          :ref:`JdbcSchema><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcSchema,? extends ai.starlake.transpiler.schema.JdbcSchema>>` function
 
 
 | **computeIfAbsent** (key, mappingFunction) → :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`Function<java.util.function.Function>` mappingFunction
+|          :ref:`JdbcSchema><java.util.function.Function<? super java.lang.String,? extends ai.starlake.transpiler.schema.JdbcSchema>>` mappingFunction
 |          returns :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
 
 
@@ -1423,7 +2794,7 @@ JdbcCatalog
 | **merge** (key, value, remappingFunction) → :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
 |          :ref:`String<java.lang.String>` key
 |          :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>` value
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcSchema><java.util.function.BiFunction<? super ai.starlake.transpiler.schema.JdbcSchema,? super ai.starlake.transpiler.schema.JdbcSchema,? extends ai.starlake.transpiler.schema.JdbcSchema>>` remappingFunction
 |          returns :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
 
 
@@ -1443,14 +2814,41 @@ JdbcCatalog
 | **clear** ()
 
 
-| **entrySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **entrySet** () → :ref:`JdbcSchema>><java.util.Set<java.util.Map.Entry<java.lang.String,ai.starlake.transpiler.schema.JdbcSchema>>>`
+|          returns :ref:`JdbcSchema>><java.util.Set<java.util.Map.Entry<java.lang.String,ai.starlake.transpiler.schema.JdbcSchema>>>`
 
 
 
-| **keySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **keySet** () → :ref:`String><java.util.Set<java.lang.String>>`
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
 
+
+
+| **getTableCatalog** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **setTableCatalog** (tableCatalog)
+|          :ref:`String<java.lang.String>` tableCatalog
+
+
+| **getCatalogSeparator** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **setCatalogSeparator** (catalogSeparator)
+|          :ref:`String<java.lang.String>` catalogSeparator
+
+
+| **getSchemas** () → :ref:`JdbcSchema><java.util.List<ai.starlake.transpiler.schema.JdbcSchema>>`
+|          returns :ref:`JdbcSchema><java.util.List<ai.starlake.transpiler.schema.JdbcSchema>>`
+
+
+
+| **setSchemas** (schemas)
+|          :ref:`JdbcSchema><java.util.List<ai.starlake.transpiler.schema.JdbcSchema>>` schemas
 
 
 
@@ -1460,9 +2858,9 @@ JdbcCatalog
 JdbcColumn
 =======================================================================
 
-*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`Comparable<java.lang.Comparable>` 
+*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`JdbcColumn><java.lang.Comparable<ai.starlake.transpiler.schema.JdbcColumn>>` 
 
-| **JdbcColumn** (tableCatalog, tableSchema, tableName, columnName, dataType, typeName, columnSize, decimalDigits, numericPrecisionRadix, nullable, remarks, columnDefinition, characterOctetLength, ordinalPosition, isNullable, scopeCatalog, scopeSchema, scopeTable, sourceDataType, isAutomaticIncrement, isGeneratedColumn, expression)
+| **JdbcColumn** (tableCatalog, tableSchema, tableName, columnName, dataType, typeName, columnSize, decimalDigits, numericPrecisionRadix, nullable, remarks, columnDefinition, characterOctetLength, ordinalPosition, isNullable, scopeCatalog, scopeSchema, scopeTable, scopeColumn, sourceDataType, isAutomaticIncrement, isGeneratedColumn, expression)
 |          :ref:`String<java.lang.String>` tableCatalog
 |          :ref:`String<java.lang.String>` tableSchema
 |          :ref:`String<java.lang.String>` tableName
@@ -1481,10 +2879,11 @@ JdbcColumn
 |          :ref:`String<java.lang.String>` scopeCatalog
 |          :ref:`String<java.lang.String>` scopeSchema
 |          :ref:`String<java.lang.String>` scopeTable
+|          :ref:`String<java.lang.String>` scopeColumn
 |          :ref:`Short<java.lang.Short>` sourceDataType
 |          :ref:`String<java.lang.String>` isAutomaticIncrement
 |          :ref:`String<java.lang.String>` isGeneratedColumn
-|          Expression expression
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 
 
 | **JdbcColumn** (tableCatalog, tableSchema, tableName, columnName, dataType, typeName, columnSize, decimalDigits, nullable, remarks, expression)
@@ -1498,7 +2897,7 @@ JdbcColumn
 |          :ref:`Integer<java.lang.Integer>` decimalDigits
 |          :ref:`Integer<java.lang.Integer>` nullable
 |          :ref:`String<java.lang.String>` remarks
-|          Expression expression
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 
 
 | **JdbcColumn** (columnName, dataType, typeName, columnSize, decimalDigits, nullable, remarks, expression)
@@ -1509,7 +2908,7 @@ JdbcColumn
 |          :ref:`Integer<java.lang.Integer>` decimalDigits
 |          :ref:`Integer<java.lang.Integer>` nullable
 |          :ref:`String<java.lang.String>` remarks
-|          Expression expression
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 
 
 | **JdbcColumn** (tableCatalog, tableSchema, tableName, columnName, expression)
@@ -1517,15 +2916,26 @@ JdbcColumn
 |          :ref:`String<java.lang.String>` tableSchema
 |          :ref:`String<java.lang.String>` tableName
 |          :ref:`String<java.lang.String>` columnName
-|          Expression expression
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 
 
 | **JdbcColumn** (columnName, expression)
 |          :ref:`String<java.lang.String>` columnName
-|          Expression expression
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 
 
 | **JdbcColumn** (columnName)
+|          :ref:`String<java.lang.String>` columnName
+
+
+| **JdbcColumn** (tableName, columnName, expression)
+|          :ref:`String<java.lang.String>` tableName
+|          :ref:`String<java.lang.String>` columnName
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+
+
+| **JdbcColumn** (tableName, columnName)
+|          :ref:`String<java.lang.String>` tableName
 |          :ref:`String<java.lang.String>` columnName
 
 
@@ -1560,30 +2970,30 @@ JdbcColumn
 
 
 
-| **getChildren** () → :ref:`List<java.util.List>`
-|          returns :ref:`List<java.util.List>`
+| **getChildren** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
 | **add** (children) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
-|          :ref:`Collection<java.util.Collection>` children
+|          :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>` children
 |          returns :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 
 
 
 | **add** (children) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
-|          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` children
+|          :ref:`JdbcColumn[]<ai.starlake.transpiler.schema.JdbcColumn[]>` children
 |          returns :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 
 
 
-| **getExpression** () → Expression
-|          returns Expression
+| **getExpression** () → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
 | **setExpression** (expression) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
-|          Expression expression
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
 |          returns :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 
 
@@ -1638,7 +3048,7 @@ JdbcIndex
 JdbcIndexColumn
 =======================================================================
 
-*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`Comparable<java.lang.Comparable>` 
+*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`JdbcIndexColumn><java.lang.Comparable<ai.starlake.transpiler.schema.JdbcIndexColumn>>` 
 
 | **JdbcIndexColumn** (ordinalPosition, columnName, ascOrDesc, cardinality, pages, filterCondition)
 |          :ref:`Short<java.lang.Short>` ordinalPosition
@@ -1670,6 +3080,89 @@ JdbcIndexColumn
 
 
 
+..  _ai.starlake.transpiler.schema.JdbcJSONSerializer:
+
+=======================================================================
+JdbcJSONSerializer
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| **JdbcJSONSerializer** ()
+
+
+| **toJson** (metadata, out, indent)
+|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metadata
+|          :ref:`Writer<java.io.Writer>` out
+|          int indent
+
+
+| **toJson** (metadata, out)
+|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metadata
+|          :ref:`Writer<java.io.Writer>` out
+
+
+| **toJson** (metadata) → :ref:`JSONObject<org.json.JSONObject>`
+|          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metadata
+|          returns :ref:`JSONObject<org.json.JSONObject>`
+
+
+
+| **fromJson** (in) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
+|          :ref:`Reader<java.io.Reader>` in
+|          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
+
+
+
+
+                |          :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>` catalog
+
+                |          returns :ref:`JSONObject<org.json.JSONObject>`
+
+
+            
+                |          :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>` schema
+
+                |          returns :ref:`JSONObject<org.json.JSONObject>`
+
+
+            
+                |          :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>` table
+
+                |          returns :ref:`JSONObject<org.json.JSONObject>`
+
+
+            
+                |          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` column
+
+                |          returns :ref:`JSONObject<org.json.JSONObject>`
+
+
+            
+                |          :ref:`JSONObject<org.json.JSONObject>` json
+
+                |          returns :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
+
+
+            
+                |          :ref:`JSONObject<org.json.JSONObject>` json
+
+                |          returns :ref:`JdbcSchema<ai.starlake.transpiler.schema.JdbcSchema>`
+
+
+            
+                |          :ref:`JSONObject<org.json.JSONObject>` json
+
+                |          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
+
+
+            
+                |          :ref:`JSONObject<org.json.JSONObject>` json
+
+                |          returns :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
+
+
+            
 ..  _ai.starlake.transpiler.schema.JdbcMetaData:
 
 =======================================================================
@@ -1678,37 +3171,87 @@ JdbcMetaData
 
 *extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`DatabaseMetaData<java.sql.DatabaseMetaData>` 
 
+| The type Jdbc metadata.
+
 | **JdbcMetaData** (schemaDefinition)
 | Instantiates a new virtual JDBC MetaData object with an empty CURRENT_CATALOG and an empty CURRENT_SCHEMA and creates tables from the provided definition.
-|          :ref:`String<java.lang.String>` schemaDefinition  | schemaDefinition the schema definition of tables and columns
+|          :ref:`String[][]<java.lang.String[][]>` schemaDefinition
+
+
+| **JdbcMetaData** (schemas)
+| Instantiates a new JDBC MetaData object from the starlake schema api. Empty CURRENT_CATALOG and empty CURRENT_SCHEMA.
+|          :ref:`DBSchema><java.util.Collection<ai.starlake.transpiler.diff.DBSchema>>` schemas
 
 
 | **JdbcMetaData** (catalogName, schemaName, schemaDefinition)
 | Instantiates a new virtual JDBC MetaData object for the given CURRENT_CATALOG and CURRENT_SCHEMA and creates tables from the provided definition.
-|          :ref:`String<java.lang.String>` catalogName  | catalogName the CURRENT_CATALOG
-|          :ref:`String<java.lang.String>` schemaName  | schemaName the CURRENT_SCHEMA
-|          :ref:`String<java.lang.String>` schemaDefinition  | schemaDefinition the schema definition of tables and columns
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`String<java.lang.String>` schemaName
+|          :ref:`String[][]<java.lang.String[][]>` schemaDefinition
 
 
 | **JdbcMetaData** (catalogName, schemaName)
 | Instantiates a new virtual JDBC MetaData object with a given CURRENT_CATALOG and CURRENT_SCHEMA.
-|          :ref:`String<java.lang.String>` catalogName  | catalogName the CURRENT_CATALOG to set
-|          :ref:`String<java.lang.String>` schemaName  | schemaName the CURRENT_SCHEMA to set
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`String<java.lang.String>` schemaName
 
 
 | **JdbcMetaData** ()
 | Instantiates a new virtual JDBC MetaData object with an empty CURRENT_CATALOG and an empty CURRENT_SCHEMA.
 
 
-| **JdbcMetaData** (con)
+| **JdbcMetaData** (conn)
 | Derives JDBC MetaData object from a physical database connection.
-|          :ref:`Connection<java.sql.Connection>` con  | con the physical database connection
+|          :ref:`Connection<java.sql.Connection>` conn
 
 
-| **getTypeName** (sqlType) → :ref:`String<java.lang.String>`
+| **getDDLStr** (catalogName) → :ref:`String<java.lang.String>`
+|          :ref:`String<java.lang.String>` catalogName
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **generateCreateTableDDL** (table, includeSchema) → :ref:`String<java.lang.String>`
+| Generates a CREATE TABLE DDL statement for this JdbcTable
+|          :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>` table
+|          boolean includeSchema
+|          returns :ref:`String<java.lang.String>`
+
+
+
+
+                Generates column definition string for a JdbcColumn
+                |          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` column
+
+                |          returns :ref:`String<java.lang.String>`
+
+
+            
+                Maps both Java class types and JDBC types to H2 column types
+                |          :ref:`Integer<java.lang.Integer>` jdbcType
+
+                |          :ref:`String<java.lang.String>` typeName
+
+                |          :ref:`Integer<java.lang.Integer>` columnSize
+
+                |          :ref:`Integer<java.lang.Integer>` decimalDigits
+
+                |          returns :ref:`String<java.lang.String>`
+
+
+            | **getTypeName** (sqlType) → :ref:`String<java.lang.String>`
 |          int sqlType
 |          returns :ref:`String<java.lang.String>`
 
+
+
+| **updateTable** (conn, t)
+|          :ref:`Connection<java.sql.Connection>` conn
+|          :ref:`Table<net.sf.jsqlparser.schema.Table>` t
+
+
+| **dropTable** (t)
+|          :ref:`Table<net.sf.jsqlparser.schema.Table>` t
 
 
 | **put** (jdbcCatalog) → :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
@@ -1717,8 +3260,8 @@ JdbcMetaData
 
 
 
-| **getCatalogMap** () → :ref:`Map<java.util.Map>`
-|          returns :ref:`Map<java.util.Map>`
+| **getCatalogMap** () → :ref:`JdbcCatalog><java.util.Map<java.lang.String,ai.starlake.transpiler.schema.JdbcCatalog>>`
+|          returns :ref:`JdbcCatalog><java.util.Map<java.lang.String,ai.starlake.transpiler.schema.JdbcCatalog>>`
 
 
 
@@ -1743,12 +3286,12 @@ JdbcMetaData
 
 
 | *@SuppressWarnings*
-| **getTableColumns** (catalogName, schemaName, tableName, columnName) → :ref:`List<java.util.List>`
+| **getTableColumns** (catalogName, schemaName, tableName, columnName) → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 |          :ref:`String<java.lang.String>` catalogName
 |          :ref:`String<java.lang.String>` schemaName
 |          :ref:`String<java.lang.String>` tableName
 |          :ref:`String<java.lang.String>` columnName
-|          returns :ref:`List<java.util.List>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
@@ -1794,17 +3337,17 @@ JdbcMetaData
 
 | **compute** (key, remappingFunction) → :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcCatalog><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcCatalog,? extends ai.starlake.transpiler.schema.JdbcCatalog>>` remappingFunction
 |          returns :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
 
 
 
 | **putAll** (m)
-|          :ref:`Map<java.util.Map>` m
+|          :ref:`JdbcCatalog><java.util.Map<? extends java.lang.String,? extends ai.starlake.transpiler.schema.JdbcCatalog>>` m
 
 
-| **values** () → :ref:`Collection<java.util.Collection>`
-|          returns :ref:`Collection<java.util.Collection>`
+| **values** () → :ref:`JdbcCatalog><java.util.Collection<ai.starlake.transpiler.schema.JdbcCatalog>>`
+|          returns :ref:`JdbcCatalog><java.util.Collection<ai.starlake.transpiler.schema.JdbcCatalog>>`
 
 
 
@@ -1817,7 +3360,7 @@ JdbcMetaData
 
 
 | **forEach** (action)
-|          :ref:`BiConsumer<java.util.function.BiConsumer>` action
+|          :ref:`JdbcCatalog><java.util.function.BiConsumer<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcCatalog>>` action
 
 
 | **getOrDefault** (key, defaultValue) → :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
@@ -1836,18 +3379,18 @@ JdbcMetaData
 
 | **computeIfPresent** (key, remappingFunction) → :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcCatalog><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcCatalog,? extends ai.starlake.transpiler.schema.JdbcCatalog>>` remappingFunction
 |          returns :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
 
 
 
 | **replaceAll** (function)
-|          :ref:`BiFunction<java.util.function.BiFunction>` function
+|          :ref:`JdbcCatalog><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcCatalog,? extends ai.starlake.transpiler.schema.JdbcCatalog>>` function
 
 
 | **computeIfAbsent** (key, mappingFunction) → :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`Function<java.util.function.Function>` mappingFunction
+|          :ref:`JdbcCatalog><java.util.function.Function<? super java.lang.String,? extends ai.starlake.transpiler.schema.JdbcCatalog>>` mappingFunction
 |          returns :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
 
 
@@ -1861,7 +3404,7 @@ JdbcMetaData
 | **merge** (key, value, remappingFunction) → :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
 |          :ref:`String<java.lang.String>` key
 |          :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>` value
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcCatalog><java.util.function.BiFunction<? super ai.starlake.transpiler.schema.JdbcCatalog,? super ai.starlake.transpiler.schema.JdbcCatalog,? extends ai.starlake.transpiler.schema.JdbcCatalog>>` remappingFunction
 |          returns :ref:`JdbcCatalog<ai.starlake.transpiler.schema.JdbcCatalog>`
 
 
@@ -1887,13 +3430,13 @@ JdbcMetaData
 | **clear** ()
 
 
-| **entrySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **entrySet** () → :ref:`JdbcCatalog>><java.util.Set<java.util.Map.Entry<java.lang.String,ai.starlake.transpiler.schema.JdbcCatalog>>>`
+|          returns :ref:`JdbcCatalog>><java.util.Set<java.util.Map.Entry<java.lang.String,ai.starlake.transpiler.schema.JdbcCatalog>>>`
 
 
 
-| **keySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **keySet** () → :ref:`String><java.util.Set<java.lang.String>>`
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
 
 
 
@@ -1907,7 +3450,7 @@ JdbcMetaData
 |          :ref:`String<java.lang.String>` catalogName
 |          :ref:`String<java.lang.String>` schemaName
 |          :ref:`String<java.lang.String>` tableName
-|          :ref:`Collection<java.util.Collection>` columns
+|          :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>` columns
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
@@ -1916,7 +3459,7 @@ JdbcMetaData
 |          :ref:`String<java.lang.String>` catalogName
 |          :ref:`String<java.lang.String>` schemaName
 |          :ref:`String<java.lang.String>` tableName
-|          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` columns
+|          :ref:`JdbcColumn[]<ai.starlake.transpiler.schema.JdbcColumn[]>` columns
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
@@ -1924,7 +3467,7 @@ JdbcMetaData
 | **addTable** (schemaName, tableName, columns) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 |          :ref:`String<java.lang.String>` schemaName
 |          :ref:`String<java.lang.String>` tableName
-|          :ref:`Collection<java.util.Collection>` columns
+|          :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>` columns
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
@@ -1932,42 +3475,42 @@ JdbcMetaData
 | **addTable** (schemaName, tableName, columns) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 |          :ref:`String<java.lang.String>` schemaName
 |          :ref:`String<java.lang.String>` tableName
-|          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` columns
+|          :ref:`JdbcColumn[]<ai.starlake.transpiler.schema.JdbcColumn[]>` columns
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
 
 | **addTable** (tableName, columns) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 |          :ref:`String<java.lang.String>` tableName
-|          :ref:`Collection<java.util.Collection>` columns
+|          :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>` columns
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
 
 | **addTable** (tableName, columns) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 |          :ref:`String<java.lang.String>` tableName
-|          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` columns
+|          :ref:`JdbcColumn[]<ai.starlake.transpiler.schema.JdbcColumn[]>` columns
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
 
 | **addTable** (tableName, columnNames) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 |          :ref:`String<java.lang.String>` tableName
-|          :ref:`String<java.lang.String>` columnNames
+|          :ref:`String[]<java.lang.String[]>` columnNames
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
 
 | **addColumns** (tableName, columns) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 |          :ref:`String<java.lang.String>` tableName
-|          :ref:`Collection<java.util.Collection>` columns
+|          :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>` columns
 |          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 
 
 
 | **addColumns** (tableName, columns) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 |          :ref:`String<java.lang.String>` tableName
-|          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` columns
+|          :ref:`JdbcColumn[]<ai.starlake.transpiler.schema.JdbcColumn[]>` columns
 |          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 
 
@@ -2707,7 +4250,7 @@ JdbcMetaData
 |          :ref:`String<java.lang.String>` catalog
 |          :ref:`String<java.lang.String>` schemaPattern
 |          :ref:`String<java.lang.String>` tableNamePattern
-|          :ref:`String<java.lang.String>` types
+|          :ref:`String[]<java.lang.String[]>` types
 |          returns :ref:`ResultSet<java.sql.ResultSet>`
 
 
@@ -2924,7 +4467,7 @@ JdbcMetaData
 |          :ref:`String<java.lang.String>` catalog
 |          :ref:`String<java.lang.String>` schemaPattern
 |          :ref:`String<java.lang.String>` typeNamePattern
-|          int types
+|          int[] types
 |          returns :ref:`ResultSet<java.sql.ResultSet>`
 
 
@@ -3111,71 +4654,71 @@ JdbcMetaData
 
 | *@Override*
 | **unwrap** (iface) → T
-|          :ref:`Class<java.lang.Class>` iface
+|          :ref:`Class<T><java.lang.Class<T>>` iface
 |          returns T
 
 
 
 | *@Override*
 | **isWrapperFor** (iface) → boolean
-|          :ref:`Class<java.lang.Class>` iface
+|          :ref:`Class<?><java.lang.Class<?>>` iface
 |          returns boolean
 
 
 
-| **getFromTables** () → :ref:`CaseInsensitiveLinkedHashMap<ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap>`
-|          returns :ref:`CaseInsensitiveLinkedHashMap<ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap>`
+| **getFromTables** () → :ref:`Table><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Table>>`
+|          returns :ref:`Table><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Table>>`
 
 
 
 | **addFromTables** (fromTables) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
-|          :ref:`Collection<java.util.Collection>` fromTables
+|          :ref:`Table><java.util.Collection<net.sf.jsqlparser.schema.Table>>` fromTables
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
 
 | **addFromTables** (fromTables) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
-|          Table fromTables
+|          :ref:`Table[]<net.sf.jsqlparser.schema.Table[]>` fromTables
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
 
-| **getLeftUsingJoinedColumns** () → :ref:`CaseInsensitiveLinkedHashMap<ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap>`
-|          returns :ref:`CaseInsensitiveLinkedHashMap<ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap>`
+| **getLeftUsingJoinedColumns** () → :ref:`Column><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Column>>`
+|          returns :ref:`Column><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Column>>`
 
 
 
 | **addLeftUsingJoinColumns** (columns) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
-|          :ref:`Collection<java.util.Collection>` columns
+|          :ref:`Column><java.util.Collection<net.sf.jsqlparser.schema.Column>>` columns
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
 
-| **getRightUsingJoinedColumns** () → :ref:`CaseInsensitiveLinkedHashMap<ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap>`
-|          returns :ref:`CaseInsensitiveLinkedHashMap<ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap>`
+| **getRightUsingJoinedColumns** () → :ref:`Column><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Column>>`
+|          returns :ref:`Column><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Column>>`
 
 
 
 | **addRightUsingJoinColumns** (columns) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
-|          :ref:`Collection<java.util.Collection>` columns
+|          :ref:`Column><java.util.Collection<net.sf.jsqlparser.schema.Column>>` columns
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
 
-| **getNaturalJoinedTables** () → :ref:`CaseInsensitiveLinkedHashMap<ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap>`
-|          returns :ref:`CaseInsensitiveLinkedHashMap<ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap>`
+| **getNaturalJoinedTables** () → :ref:`Table><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Table>>`
+|          returns :ref:`Table><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Table>>`
 
 
 
 | **addNaturalJoinedTable** (t) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
-|          Table t
+|          :ref:`Table<net.sf.jsqlparser.schema.Table>` t
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
 
 | **copyOf** (metaData, fromTables) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 |          :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>` metaData
-|          :ref:`CaseInsensitiveLinkedHashMap<ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap>` fromTables
+|          :ref:`Table><ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap<net.sf.jsqlparser.schema.Table>>` fromTables
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
 
@@ -3186,7 +4729,18 @@ JdbcMetaData
 
 
 
-| **getCurrentCatalogName** () → :ref:`String<java.lang.String>`
+| **copyOf** () → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
+|          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
+
+
+
+
+                |          :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>` table
+
+                |          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
+
+
+            | **getCurrentCatalogName** () → :ref:`String<java.lang.String>`
 |          returns :ref:`String<java.lang.String>`
 
 
@@ -3200,6 +4754,103 @@ JdbcMetaData
 |          :ref:`String<java.lang.String>` catalogSeparator
 |          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
 
+
+
+| **addUnresolved** (unquotedQualifiedName)
+| Add the name of an unresolvable column or table to the list.
+|          :ref:`String<java.lang.String>` unquotedQualifiedName
+
+
+| **getUnresolvedObjects** () → :ref:`String><java.util.Set<java.lang.String>>`
+| Gets unresolved column or table names, not existing in the schema
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
+
+
+
+| **getErrorMode** () → :ref:`ErrorMode<ai.starlake.transpiler.schema.JdbcMetaData.ErrorMode>`
+| Gets the error mode.
+|          returns :ref:`ErrorMode<ai.starlake.transpiler.schema.JdbcMetaData.ErrorMode>`
+
+
+
+| **setErrorMode** (errorMode) → :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
+| Sets the error mode.
+|          :ref:`ErrorMode<ai.starlake.transpiler.schema.JdbcMetaData.ErrorMode>` errorMode
+|          returns :ref:`JdbcMetaData<ai.starlake.transpiler.schema.JdbcMetaData>`
+
+
+
+| **getDatabaseType** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **setDatabaseType** (databaseType)
+|          :ref:`String<java.lang.String>` databaseType
+
+
+| **getCatalogsList** () → :ref:`JdbcCatalog><java.util.List<ai.starlake.transpiler.schema.JdbcCatalog>>`
+|          returns :ref:`JdbcCatalog><java.util.List<ai.starlake.transpiler.schema.JdbcCatalog>>`
+
+
+
+| **setCatalogsList** (catalogs)
+|          :ref:`JdbcCatalog><java.util.List<ai.starlake.transpiler.schema.JdbcCatalog>>` catalogs
+
+
+| **setCurrentCatalogName** (currentCatalogName)
+|          :ref:`String<java.lang.String>` currentCatalogName
+
+
+| **setCurrentSchemaName** (currentSchemaName)
+|          :ref:`String<java.lang.String>` currentSchemaName
+
+
+| **hasTable** (catalogName, schemaName, tableName) → boolean
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`String<java.lang.String>` schemaName
+|          :ref:`String<java.lang.String>` tableName
+|          returns boolean
+
+
+
+| **hasTable** (t) → boolean
+|          :ref:`Table<net.sf.jsqlparser.schema.Table>` t
+|          returns boolean
+
+
+
+| **getTable** (catalogName, schemaName, tableName) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`String<java.lang.String>` schemaName
+|          :ref:`String<java.lang.String>` tableName
+|          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
+
+
+
+| **getTable** (t) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
+|          :ref:`Table<net.sf.jsqlparser.schema.Table>` t
+|          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
+
+
+
+| **hasTableColumn** (catalogName, schemaName, tableName, columnName) → boolean
+|          :ref:`String<java.lang.String>` catalogName
+|          :ref:`String<java.lang.String>` schemaName
+|          :ref:`String<java.lang.String>` tableName
+|          :ref:`String<java.lang.String>` columnName
+|          returns boolean
+
+
+
+| **addSynonym** (fromTableName, toTableName)
+|          :ref:`String<java.lang.String>` fromTableName
+|          :ref:`String<java.lang.String>` toTableName
+
+
+| **dropSynonym** (fromTableName, toTableName)
+|          :ref:`String<java.lang.String>` fromTableName
+|          :ref:`String<java.lang.String>` toTableName
 
 
 
@@ -3279,13 +4930,13 @@ JdbcResultSetMetaData
 | **JdbcResultSetMetaData** ()
 
 
-| **getColumns** () → :ref:`ArrayList<java.util.ArrayList>`
-|          returns :ref:`ArrayList<java.util.ArrayList>`
+| **getColumns** () → :ref:`JdbcColumn><java.util.ArrayList<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.ArrayList<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
-| **getLabels** () → :ref:`ArrayList<java.util.ArrayList>`
-|          returns :ref:`ArrayList<java.util.ArrayList>`
+| **getLabels** () → :ref:`String><java.util.ArrayList<java.lang.String>>`
+|          returns :ref:`String><java.util.ArrayList<java.lang.String>>`
 
 
 
@@ -3467,14 +5118,14 @@ JdbcResultSetMetaData
 
 | *@Override*
 | **unwrap** (iface) → T
-|          :ref:`Class<java.lang.Class>` iface
+|          :ref:`Class<T><java.lang.Class<T>>` iface
 |          returns T
 
 
 
 | *@Override*
 | **isWrapperFor** (iface) → boolean
-|          :ref:`Class<java.lang.Class>` iface
+|          :ref:`Class<?><java.lang.Class<?>>` iface
 |          returns boolean
 
 
@@ -3486,21 +5137,36 @@ JdbcResultSetMetaData
 JdbcSchema
 =======================================================================
 
-*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`Comparable<java.lang.Comparable>` 
+*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`JdbcSchema><java.lang.Comparable<ai.starlake.transpiler.schema.JdbcSchema>>` 
 
 | **JdbcSchema** (tableSchema, tableCatalog)
 |          :ref:`String<java.lang.String>` tableSchema
 |          :ref:`String<java.lang.String>` tableCatalog
 
 
-| **getSchemas** (metaData) → :ref:`Collection<java.util.Collection>`
+| **JdbcSchema** ()
+
+
+| **getSchemasFromInformationSchema** (conn) → :ref:`JdbcSchema><java.util.Collection<ai.starlake.transpiler.schema.JdbcSchema>>`
+|          :ref:`Connection<java.sql.Connection>` conn
+|          returns :ref:`JdbcSchema><java.util.Collection<ai.starlake.transpiler.schema.JdbcSchema>>`
+
+
+
+| **getSchemas** (metaData) → :ref:`JdbcSchema><java.util.Collection<ai.starlake.transpiler.schema.JdbcSchema>>`
 |          :ref:`DatabaseMetaData<java.sql.DatabaseMetaData>` metaData
-|          returns :ref:`Collection<java.util.Collection>`
+|          returns :ref:`JdbcSchema><java.util.Collection<ai.starlake.transpiler.schema.JdbcSchema>>`
 
 
 
 | **put** (jdbcTable) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 |          :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>` jdbcTable
+|          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
+
+
+
+| **get** (table) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
+|          :ref:`Table<net.sf.jsqlparser.schema.Table>` table
 |          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 
 
@@ -3563,17 +5229,17 @@ JdbcSchema
 
 | **compute** (key, remappingFunction) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcTable><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcTable,? extends ai.starlake.transpiler.schema.JdbcTable>>` remappingFunction
 |          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 
 
 
 | **putAll** (m)
-|          :ref:`Map<java.util.Map>` m
+|          :ref:`JdbcTable><java.util.Map<? extends java.lang.String,? extends ai.starlake.transpiler.schema.JdbcTable>>` m
 
 
-| **values** () → :ref:`Collection<java.util.Collection>`
-|          returns :ref:`Collection<java.util.Collection>`
+| **values** () → :ref:`JdbcTable><java.util.Collection<ai.starlake.transpiler.schema.JdbcTable>>`
+|          returns :ref:`JdbcTable><java.util.Collection<ai.starlake.transpiler.schema.JdbcTable>>`
 
 
 
@@ -3586,7 +5252,7 @@ JdbcSchema
 
 
 | **forEach** (action)
-|          :ref:`BiConsumer<java.util.function.BiConsumer>` action
+|          :ref:`JdbcTable><java.util.function.BiConsumer<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcTable>>` action
 
 
 | **getOrDefault** (key, defaultValue) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
@@ -3605,18 +5271,18 @@ JdbcSchema
 
 | **computeIfPresent** (key, remappingFunction) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcTable><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcTable,? extends ai.starlake.transpiler.schema.JdbcTable>>` remappingFunction
 |          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 
 
 
 | **replaceAll** (function)
-|          :ref:`BiFunction<java.util.function.BiFunction>` function
+|          :ref:`JdbcTable><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcTable,? extends ai.starlake.transpiler.schema.JdbcTable>>` function
 
 
 | **computeIfAbsent** (key, mappingFunction) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`Function<java.util.function.Function>` mappingFunction
+|          :ref:`JdbcTable><java.util.function.Function<? super java.lang.String,? extends ai.starlake.transpiler.schema.JdbcTable>>` mappingFunction
 |          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 
 
@@ -3630,7 +5296,7 @@ JdbcSchema
 | **merge** (key, value, remappingFunction) → :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 |          :ref:`String<java.lang.String>` key
 |          :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>` value
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcTable><java.util.function.BiFunction<? super ai.starlake.transpiler.schema.JdbcTable,? super ai.starlake.transpiler.schema.JdbcTable,? extends ai.starlake.transpiler.schema.JdbcTable>>` remappingFunction
 |          returns :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>`
 
 
@@ -3650,14 +5316,32 @@ JdbcSchema
 | **clear** ()
 
 
-| **entrySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **entrySet** () → :ref:`JdbcTable>><java.util.Set<java.util.Map.Entry<java.lang.String,ai.starlake.transpiler.schema.JdbcTable>>>`
+|          returns :ref:`JdbcTable>><java.util.Set<java.util.Map.Entry<java.lang.String,ai.starlake.transpiler.schema.JdbcTable>>>`
 
 
 
-| **keySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **keySet** () → :ref:`String><java.util.Set<java.lang.String>>`
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
 
+
+
+| **getTables** () → :ref:`JdbcTable><java.util.List<ai.starlake.transpiler.schema.JdbcTable>>`
+|          returns :ref:`JdbcTable><java.util.List<ai.starlake.transpiler.schema.JdbcTable>>`
+
+
+
+| **setTables** (tables)
+|          :ref:`JdbcTable><java.util.List<ai.starlake.transpiler.schema.JdbcTable>>` tables
+
+
+| **getSchemaName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **setSchemaName** (schemaName)
+|          :ref:`String<java.lang.String>` schemaName
 
 
 
@@ -3667,7 +5351,7 @@ JdbcSchema
 JdbcTable
 =======================================================================
 
-*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`Comparable<java.lang.Comparable>` 
+*extends:* :ref:`Object<java.lang.Object>` *implements:* :ref:`JdbcTable><java.lang.Comparable<ai.starlake.transpiler.schema.JdbcTable>>` 
 
 | **JdbcTable** (tableCatalog, tableSchema, tableName, tableType, remarks, typeCatalog, typeSchema, typeName, selfReferenceColName, referenceGeneration)
 |          :ref:`String<java.lang.String>` tableCatalog
@@ -3694,14 +5378,69 @@ JdbcTable
 |          :ref:`String<java.lang.String>` tableName
 
 
-| **getTables** (metaData) → :ref:`Collection<java.util.Collection>`
+| **JdbcTable** ()
+
+
+| **getTables** (metaData, currentCatalog, currentSchema) → :ref:`JdbcTable><java.util.Collection<ai.starlake.transpiler.schema.JdbcTable>>`
 |          :ref:`DatabaseMetaData<java.sql.DatabaseMetaData>` metaData
-|          returns :ref:`Collection<java.util.Collection>`
+|          :ref:`String<java.lang.String>` currentCatalog
+|          :ref:`String<java.lang.String>` currentSchema
+|          returns :ref:`JdbcTable><java.util.Collection<ai.starlake.transpiler.schema.JdbcTable>>`
 
 
 
-| **getColumns** (metaData)
+| **getTablesFromInformationSchema** (metaData, currentCatalog, currentSchema, tableNamePattern) → :ref:`JdbcTable><java.util.ArrayList<ai.starlake.transpiler.schema.JdbcTable>>`
 |          :ref:`DatabaseMetaData<java.sql.DatabaseMetaData>` metaData
+|          :ref:`String<java.lang.String>` currentCatalog
+|          :ref:`String<java.lang.String>` currentSchema
+|          :ref:`String<java.lang.String>` tableNamePattern
+|          returns :ref:`JdbcTable><java.util.ArrayList<ai.starlake.transpiler.schema.JdbcTable>>`
+
+
+
+| **getTables** (metaData, currentCatalog, currentSchema, tableNamePattern) → :ref:`JdbcTable><java.util.Collection<ai.starlake.transpiler.schema.JdbcTable>>`
+|          :ref:`DatabaseMetaData<java.sql.DatabaseMetaData>` metaData
+|          :ref:`String<java.lang.String>` currentCatalog
+|          :ref:`String<java.lang.String>` currentSchema
+|          :ref:`String<java.lang.String>` tableNamePattern
+|          returns :ref:`JdbcTable><java.util.Collection<ai.starlake.transpiler.schema.JdbcTable>>`
+
+
+
+| **getColumns** (metaData) → :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`DatabaseMetaData<java.sql.DatabaseMetaData>` metaData
+|          returns :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **getColumnsFromSchemaInformation** (connection, catalog, schemaPattern, tableNamePattern) → :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`Connection<java.sql.Connection>` connection
+|          :ref:`String<java.lang.String>` catalog
+|          :ref:`String<java.lang.String>` schemaPattern
+|          :ref:`String<java.lang.String>` tableNamePattern
+|          returns :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+
+                |          :ref:`String<java.lang.String>` snowflakeType
+
+                |          returns :ref:`Integer<java.lang.Integer>`
+
+
+            
+                |          int jdbcType
+
+                |          returns boolean
+
+
+            | **getColumns** (metaData, catalog, schemaPattern, tableNamePattern) → :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          :ref:`DatabaseMetaData<java.sql.DatabaseMetaData>` metaData
+|          :ref:`String<java.lang.String>` catalog
+|          :ref:`String<java.lang.String>` schemaPattern
+|          :ref:`String<java.lang.String>` tableNamePattern
+|          returns :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>`
+
 
 
 | **getIndices** (metaData, approximate)
@@ -3726,7 +5465,7 @@ JdbcTable
 
 
 
-| **add** (tableCatalog, tableSchema, tableName, columnName, dataType, typeName, columnSize, decimalDigits, numericPrecisionRadix, nullable, remarks, columnDefinition, characterOctetLength, ordinalPosition, isNullable, scopeCatalog, scopeSchema, scopeTable, sourceDataType, isAutomaticIncrement, isGeneratedColumn) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
+| **add** (tableCatalog, tableSchema, tableName, columnName, dataType, typeName, columnSize, decimalDigits, numericPrecisionRadix, nullable, remarks, columnDefinition, characterOctetLength, ordinalPosition, isNullable, scopeCatalog, scopeSchema, scopeTable, scopeColumn, sourceDataType, isAutomaticIncrement, isGeneratedColumn) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 |          :ref:`String<java.lang.String>` tableCatalog
 |          :ref:`String<java.lang.String>` tableSchema
 |          :ref:`String<java.lang.String>` tableName
@@ -3745,6 +5484,7 @@ JdbcTable
 |          :ref:`String<java.lang.String>` scopeCatalog
 |          :ref:`String<java.lang.String>` scopeSchema
 |          :ref:`String<java.lang.String>` scopeTable
+|          :ref:`String<java.lang.String>` scopeColumn
 |          :ref:`Short<java.lang.Short>` sourceDataType
 |          :ref:`String<java.lang.String>` isAutomaticIncrement
 |          :ref:`String<java.lang.String>` isGeneratedColumn
@@ -3827,17 +5567,17 @@ JdbcTable
 
 | **compute** (key, remappingFunction) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcColumn><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcColumn,? extends ai.starlake.transpiler.schema.JdbcColumn>>` remappingFunction
 |          returns :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 
 
 
 | **putAll** (m)
-|          :ref:`Map<java.util.Map>` m
+|          :ref:`JdbcColumn><java.util.Map<? extends java.lang.String,? extends ai.starlake.transpiler.schema.JdbcColumn>>` m
 
 
-| **values** () → :ref:`Collection<java.util.Collection>`
-|          returns :ref:`Collection<java.util.Collection>`
+| **values** () → :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.Collection<ai.starlake.transpiler.schema.JdbcColumn>>`
 
 
 
@@ -3850,7 +5590,7 @@ JdbcTable
 
 
 | **forEach** (action)
-|          :ref:`BiConsumer<java.util.function.BiConsumer>` action
+|          :ref:`JdbcColumn><java.util.function.BiConsumer<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcColumn>>` action
 
 
 | **getOrDefault** (key, defaultValue) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
@@ -3869,18 +5609,18 @@ JdbcTable
 
 | **computeIfPresent** (key, remappingFunction) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcColumn><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcColumn,? extends ai.starlake.transpiler.schema.JdbcColumn>>` remappingFunction
 |          returns :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 
 
 
 | **replaceAll** (function)
-|          :ref:`BiFunction<java.util.function.BiFunction>` function
+|          :ref:`JdbcColumn><java.util.function.BiFunction<? super java.lang.String,? super ai.starlake.transpiler.schema.JdbcColumn,? extends ai.starlake.transpiler.schema.JdbcColumn>>` function
 
 
 | **computeIfAbsent** (key, mappingFunction) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 |          :ref:`String<java.lang.String>` key
-|          :ref:`Function<java.util.function.Function>` mappingFunction
+|          :ref:`JdbcColumn><java.util.function.Function<? super java.lang.String,? extends ai.starlake.transpiler.schema.JdbcColumn>>` mappingFunction
 |          returns :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 
 
@@ -3895,7 +5635,7 @@ JdbcTable
 | **merge** (key, value, remappingFunction) → :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 |          :ref:`String<java.lang.String>` key
 |          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` value
-|          :ref:`BiFunction<java.util.function.BiFunction>` remappingFunction
+|          :ref:`JdbcColumn><java.util.function.BiFunction<? super ai.starlake.transpiler.schema.JdbcColumn,? super ai.starlake.transpiler.schema.JdbcColumn,? extends ai.starlake.transpiler.schema.JdbcColumn>>` remappingFunction
 |          returns :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>`
 
 
@@ -3909,17 +5649,127 @@ JdbcTable
 | **clear** ()
 
 
-| **entrySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **entrySet** () → :ref:`JdbcColumn>><java.util.Set<java.util.Map.Entry<java.lang.String,ai.starlake.transpiler.schema.JdbcColumn>>>`
+|          returns :ref:`JdbcColumn>><java.util.Set<java.util.Map.Entry<java.lang.String,ai.starlake.transpiler.schema.JdbcColumn>>>`
 
 
 
-| **keySet** () → :ref:`Set<java.util.Set>`
-|          returns :ref:`Set<java.util.Set>`
+| **keySet** () → :ref:`String><java.util.Set<java.lang.String>>`
+|          returns :ref:`String><java.util.Set<java.lang.String>>`
+
+
+
+| **getColumns** () → :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+|          returns :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>`
+
+
+
+| **setColumns** (columns)
+|          :ref:`JdbcColumn><java.util.List<ai.starlake.transpiler.schema.JdbcColumn>>` columns
+
+
+| **getTableName** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **setTableName** (tableName)
+|          :ref:`String<java.lang.String>` tableName
+
+
+| **getTableType** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **setTableType** (tableType)
+|          :ref:`String<java.lang.String>` tableType
+
+
+
+..  _ai.starlake.transpiler.schema.JdbcUtils:
+
+=======================================================================
+JdbcUtils
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| **JdbcUtils** ()
+
+
+| **findColumnSafe** (rs, columnName) → int
+| Safe variant of java.sql.ResultSet.findColumn() Does not throw SQLException if columnName does not exist in result set.
+|          :ref:`ResultSet<java.sql.ResultSet>` rs
+|          :ref:`String<java.lang.String>` columnName
+|          returns int
 
 
 
 
+                Retrieves column's value from ResultSet safely (does not throw SQLException if column (name)
+ not present in ResultSet.
+                
+                
+                
+                |          :ref:`ResultSet<java.sql.ResultSet>` rs
+
+                |          :ref:`String<java.lang.String>` columnName
+
+                |          returns :ref:`String<java.lang.String>`
+
+
+            
+                Retrieves column's value from ResultSet safely (does not throw SQLException if column (name)
+ not present in ResultSet.
+                
+                
+                
+                
+                |          :ref:`ResultSet<java.sql.ResultSet>` rs
+
+                |          :ref:`String<java.lang.String>` columnName
+
+                |          :ref:`String<java.lang.String>` defaultValue
+
+                |          returns :ref:`String<java.lang.String>`
+
+
+            
+                |          :ref:`ResultSet<java.sql.ResultSet>` rs
+
+                |          int columnIdx
+
+                |          :ref:`String<java.lang.String>` defaultValue
+
+                |          returns :ref:`String<java.lang.String>`
+
+
+            
+                |          :ref:`ResultSet<java.sql.ResultSet>` rs
+
+                |          :ref:`String<java.lang.String>` columnName
+
+                |          returns :ref:`Integer<java.lang.Integer>`
+
+
+            
+                |          :ref:`ResultSet<java.sql.ResultSet>` rs
+
+                |          :ref:`String<java.lang.String>` columnName
+
+                |          returns :ref:`Short<java.lang.Short>`
+
+
+            
+                |          :ref:`ResultSet<java.sql.ResultSet>` rs
+
+                |          :ref:`String<java.lang.String>` columnName
+
+                |          returns :ref:`Boolean<java.lang.Boolean>`
+
+
+            
 ..  _ai.starlake.transpiler.schema.SampleSchemaProvider:
 
 =======================================================================
@@ -3931,21 +5781,188 @@ SampleSchemaProvider
 | **SampleSchemaProvider** ()
 
 
-| **getTables** () → :ref:`Map<java.util.Map>`
-|          returns :ref:`Map<java.util.Map>`
+| **getTables** () → :ref:`String>><java.util.Map<java.lang.String,java.util.Map<java.lang.String,java.lang.String>>>`
+|          returns :ref:`String>><java.util.Map<java.lang.String,java.util.Map<java.lang.String,java.lang.String>>>`
 
 
 
-| **getTable** (schemaName, tableName) → :ref:`Map<java.util.Map>`
+| **getTable** (schemaName, tableName) → :ref:`String><java.util.Map<java.lang.String,java.lang.String>>`
 |          :ref:`String<java.lang.String>` schemaName
 |          :ref:`String<java.lang.String>` tableName
-|          returns :ref:`Map<java.util.Map>`
+|          returns :ref:`String><java.util.Map<java.lang.String,java.lang.String>>`
 
 
 
-| **getTables** (tableName) → :ref:`Map<java.util.Map>`
+| **getTables** (tableName) → :ref:`String>><java.util.Map<java.lang.String,java.util.Map<java.lang.String,java.lang.String>>>`
 |          :ref:`String<java.lang.String>` tableName
-|          returns :ref:`Map<java.util.Map>`
+|          returns :ref:`String>><java.util.Map<java.lang.String,java.util.Map<java.lang.String,java.lang.String>>>`
+
+
+
+
+..  _ai.starlake.transpiler.schema.TypeMappingSystem:
+
+=======================================================================
+TypeMappingSystem
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| Type mapping system that handles: 1. JDBC Schema types to DDL column types (using YAML config) 2. ResultSetMetaData back to type names (reverse mapping)
+
+| **TypeMappingSystem** ()
+
+
+
+                Initialize all mappings based on the YAML configuration All keys are stored in lowercase for
+ case-insensitive lookup
+                |          returns void
+
+
+            
+                Helper method to add case-insensitive mappings for all databases
+                |          :ref:`String<java.lang.String>` typeName
+
+                |          :ref:`String<java.lang.String>` h2Type
+
+                |          :ref:`String<java.lang.String>` duckdbType
+
+                |          :ref:`String<java.lang.String>` postgresType
+
+                |          returns void
+
+
+            
+                Initialize reverse mappings from DDL types back to type names All keys stored in uppercase for
+ case-insensitive lookup
+                |          returns void
+
+
+            
+                Helper method to add case-insensitive reverse mappings for H2 and DuckDB
+                |          :ref:`String<java.lang.String>` ddlType
+
+                |          :ref:`String<java.lang.String>` typeName
+
+                |          returns void
+
+
+            
+                Helper method to add case-insensitive reverse mappings for PostgreSQL
+                |          :ref:`String<java.lang.String>` ddlType
+
+                |          :ref:`String<java.lang.String>` typeName
+
+                |          returns void
+
+
+            
+                Initialize JDBC type code to type name mappings
+                |          returns void
+
+
+            | **parseType** (typeName) → :ref:`ParsedType<ai.starlake.transpiler.schema.TypeMappingSystem.ParsedType>`
+|          :ref:`String<java.lang.String>` typeName
+|          returns :ref:`ParsedType<ai.starlake.transpiler.schema.TypeMappingSystem.ParsedType>`
+
+
+
+| **mapTypeToDDL** (typeName, database, columnSize, decimalDigits) → :ref:`String<java.lang.String>`
+| Maps type name to DDL column type for specific database
+|          :ref:`String<java.lang.String>` typeName
+|          :ref:`String<java.lang.String>` database
+|          :ref:`Integer<java.lang.Integer>` columnSize
+|          :ref:`Integer<java.lang.Integer>` decimalDigits
+|          returns :ref:`String<java.lang.String>`
+
+
+
+
+                Apply precision and scale to DDL types where applicable
+                |          :ref:`String<java.lang.String>` ddlType
+
+                |          :ref:`Integer<java.lang.Integer>` columnSize
+
+                |          :ref:`Integer<java.lang.Integer>` decimalDigits
+
+                |          returns :ref:`String<java.lang.String>`
+
+
+            | **mapResultSetToTypeName** (metaData, columnIndex, database) → :ref:`String<java.lang.String>`
+| Maps ResultSetMetaData back to type name
+|          :ref:`ResultSetMetaData<java.sql.ResultSetMetaData>` metaData
+|          int columnIndex
+|          :ref:`String<java.lang.String>` database
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **mapDDLToTypeName** (ddlTypeName, database) → :ref:`String<java.lang.String>`
+| Maps DDL type name back to our type system
+|          :ref:`String<java.lang.String>` ddlTypeName
+|          :ref:`String<java.lang.String>` database
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **generateColumnDefinition** (column, database) → :ref:`String<java.lang.String>`
+| Enhanced column definition generator using the type mapping system
+|          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` column
+|          :ref:`String<java.lang.String>` database
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **generateColumnDefinition** (columnName, typeName, database) → :ref:`String<java.lang.String>`
+| Enhanced column definition generator using the type mapping system
+|          :ref:`String<java.lang.String>` columnName
+|          :ref:`String<java.lang.String>` typeName
+|          :ref:`String<java.lang.String>` database
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **generateColumnDefinition** (columnName, typeName, dataType, columnSize, decimalDigits, nullable, columnDefinition, database) → :ref:`String<java.lang.String>`
+| Enhanced column definition generator using the type mapping system
+|          :ref:`String<java.lang.String>` columnName
+|          :ref:`String<java.lang.String>` typeName
+|          :ref:`Integer<java.lang.Integer>` dataType
+|          :ref:`Integer<java.lang.Integer>` columnSize
+|          :ref:`Integer<java.lang.Integer>` decimalDigits
+|          :ref:`Integer<java.lang.Integer>` nullable
+|          :ref:`String<java.lang.String>` columnDefinition
+|          :ref:`String<java.lang.String>` database
+|          returns :ref:`String<java.lang.String>`
+
+
+
+| **generateCreateTableDDL** (table, database, includeSchema) → :ref:`String<java.lang.String>`
+| Example usage for creating table DDL
+|          :ref:`JdbcTable<ai.starlake.transpiler.schema.JdbcTable>` table
+|          :ref:`String<java.lang.String>` database
+|          boolean includeSchema
+|          returns :ref:`String<java.lang.String>`
+
+
+
+
+..  _ai.starlake.transpiler.schema.TypeMappingSystem.ParsedType:
+
+=======================================================================
+ParsedType
+=======================================================================
+
+*extends:* :ref:`Object<java.lang.Object>` 
+
+| **ParsedType** (isArray, baseType, brackets)
+|          boolean isArray
+|          :ref:`String<java.lang.String>` baseType
+|          :ref:`String<java.lang.String>` brackets
+
+
+| *@Override*
+| **toString** () → :ref:`String<java.lang.String>`
+|          returns :ref:`String<java.lang.String>`
 
 
 
@@ -3955,19 +5972,86 @@ SampleSchemaProvider
 ma.treebuilder
 ***********************************************************************
 
+..  _ai.starlake.transpiler.schema.treebuilder.FlattenedColumnBuilder:
+
+=======================================================================
+FlattenedColumnBuilder
+=======================================================================
+
+*extends:* :ref:`String>>><ai.starlake.transpiler.schema.treebuilder.TreeBuilder<java.util.Map<java.lang.String,java.util.Set<java.lang.String>>>>` 
+
+| **FlattenedColumnBuilder** (resultSetMetaData)
+|          :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>` resultSetMetaData
+
+
+
+                Recursively collects all leaf node column names from the dependency tree. A leaf node is a
+ column from a physical table (base table).
+                
+                
+                |          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` column
+
+                |          :ref:`String><java.util.LinkedHashSet<java.lang.String>>` dependencies
+
+                |          returns void
+
+
+                
+                
+                
+                
+                
+            | *@Override*
+| **getConvertedTree** (resolver) → :ref:`String>><java.util.Map<java.lang.String,java.util.Set<java.lang.String>>>`
+|          :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>` resolver
+|          returns :ref:`String>><java.util.Map<java.lang.String,java.util.Set<java.lang.String>>>`
+
+
+
+
 ..  _ai.starlake.transpiler.schema.treebuilder.JsonTreeBuilder:
 
 =======================================================================
 JsonTreeBuilder
 =======================================================================
 
-*extends:* :ref:`TreeBuilder<ai.starlake.transpiler.schema.treebuilder.TreeBuilder>` 
+*extends:* :ref:`String><ai.starlake.transpiler.schema.treebuilder.TreeBuilder<java.lang.String>>` 
 
 | **JsonTreeBuilder** (resultSetMetaData)
 |          :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>` resultSetMetaData
 
 
-| *@Override*
+
+                |          int indent
+
+                |          returns void
+
+
+            
+                |          :ref:`String<java.lang.String>` input
+
+                |          int indentLevel
+
+                |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
+
+
+            
+                |          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` column
+
+                |          :ref:`String<java.lang.String>` alias
+
+                |          int indent
+
+                |          returns void
+
+
+                
+                    
+                        
+                        PMD.CyclomaticComplexity
+                    
+                
+            | *@Override*
 | **getConvertedTree** (resolver) → :ref:`String<java.lang.String>`
 |          :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>` resolver
 |          returns :ref:`String<java.lang.String>`
@@ -3975,13 +6059,49 @@ JsonTreeBuilder
 
 
 
-..  _ai.starlake.transpiler.schema.treebuilder.TreeBuilder:
+..  _ai.starlake.transpiler.schema.treebuilder.JsonTreeBuilderMinimized:
+
+=======================================================================
+JsonTreeBuilderMinimized
+=======================================================================
+
+*extends:* :ref:`String><ai.starlake.transpiler.schema.treebuilder.TreeBuilder<java.lang.String>>` 
+
+| Concise/minimized version of output generated by JsonTreeBuilder. Useful when the output needs to be transported somewhere or parsed back into POJO.
+
+| **JsonTreeBuilderMinimized** (resultSetMetaData)
+|          :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>` resultSetMetaData
+
+
+
+                |          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` column
+
+                |          :ref:`String<java.lang.String>` alias
+
+                |          returns void
+
+
+                
+                    
+                        
+                        PMD.CyclomaticComplexity
+                    
+                
+            | *@Override*
+| **getConvertedTree** (resolver) → :ref:`String<java.lang.String>`
+|          :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>` resolver
+|          returns :ref:`String<java.lang.String>`
+
+
+
+
+..  _ai.starlake.transpiler.schema.treebuilder.TreeBuilder&lt;T&gt;:
 
 =======================================================================
 TreeBuilder
 =======================================================================
 
-*extends:* :ref:`Object<java.lang.Object>` *provides:* :ref:`JsonTreeBuilder<ai.starlake.transpiler.schema.treebuilder.JsonTreeBuilder>`, :ref:`XmlTreeBuilder<ai.starlake.transpiler.schema.treebuilder.XmlTreeBuilder>` 
+*extends:* :ref:`Object<java.lang.Object>` 
 
 | **TreeBuilder** (resultSetMetaData)
 |          :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>` resultSetMetaData
@@ -4000,13 +6120,43 @@ TreeBuilder
 XmlTreeBuilder
 =======================================================================
 
-*extends:* :ref:`TreeBuilder<ai.starlake.transpiler.schema.treebuilder.TreeBuilder>` 
+*extends:* :ref:`String><ai.starlake.transpiler.schema.treebuilder.TreeBuilder<java.lang.String>>` 
 
 | **XmlTreeBuilder** (resultSetMetaData)
 |          :ref:`JdbcResultSetMetaData<ai.starlake.transpiler.schema.JdbcResultSetMetaData>` resultSetMetaData
 
 
-| *@Override*
+
+                |          int indent
+
+                |          returns void
+
+
+            
+                |          :ref:`String<java.lang.String>` input
+
+                |          int indentLevel
+
+                |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
+
+
+            
+                |          :ref:`JdbcColumn<ai.starlake.transpiler.schema.JdbcColumn>` column
+
+                |          :ref:`String<java.lang.String>` alias
+
+                |          int indent
+
+                |          returns void
+
+
+                
+                    
+                        
+                        PMD.CyclomaticComplexity
+                    
+                
+            | *@Override*
 | **getConvertedTree** (resolver) → :ref:`String<java.lang.String>`
 |          :ref:`JSQLColumResolver<ai.starlake.transpiler.JSQLColumResolver>` resolver
 |          returns :ref:`String<java.lang.String>`
@@ -4028,26 +6178,26 @@ SnowflakeExpressionTranspiler
 *extends:* :ref:`RedshiftExpressionTranspiler<ai.starlake.transpiler.redshift.RedshiftExpressionTranspiler>` 
 
 | **SnowflakeExpressionTranspiler** (deParser, buffer)
-|          SelectDeParser deParser
+|          :ref:`SelectDeParser<net.sf.jsqlparser.util.deparser.SelectDeParser>` deParser
 |          :ref:`StringBuilder<java.lang.StringBuilder>` buffer
 
 
-| **toDateTimePart** (expression) → Expression
-|          Expression expression
-|          returns Expression
+| **toDateTimePart** (expression) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` expression
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
-| **castInterval** (e1, e2) → Expression
-|          Expression e1
-|          Expression e2
-|          returns Expression
+| **castInterval** (e1, e2) → :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` e1
+|          :ref:`Expression<net.sf.jsqlparser.expression.Expression>` e2
+|          returns :ref:`Expression<net.sf.jsqlparser.expression.Expression>`
 
 
 
 | *@Override*,| *@SuppressWarnings*
 | **visit** (function, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Function function
+|          :ref:`Function<net.sf.jsqlparser.expression.Function>` function
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -4055,7 +6205,7 @@ SnowflakeExpressionTranspiler
 
 | *@Override*
 | **visit** (function, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          AnalyticExpression function
+|          :ref:`AnalyticExpression<net.sf.jsqlparser.expression.AnalyticExpression>` function
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -4063,7 +6213,7 @@ SnowflakeExpressionTranspiler
 
 | *@Override*
 | **visit** (column, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Column column
+|          :ref:`Column<net.sf.jsqlparser.schema.Column>` column
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -4071,7 +6221,7 @@ SnowflakeExpressionTranspiler
 
 | *@Override*
 | **visit** (hexValue, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          HexValue hexValue
+|          :ref:`HexValue<net.sf.jsqlparser.expression.HexValue>` hexValue
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -4079,15 +6229,15 @@ SnowflakeExpressionTranspiler
 
 | *@Override*
 | **visit** (likeExpression, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          LikeExpression likeExpression
+|          :ref:`LikeExpression<net.sf.jsqlparser.expression.operators.relational.LikeExpression>` likeExpression
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
 
 
-| **rewriteType** (colDataType) → ColDataType
-|          ColDataType colDataType
-|          returns ColDataType
+| **rewriteType** (colDataType) → :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>`
+|          :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>` colDataType
+|          returns :ref:`ColDataType<net.sf.jsqlparser.statement.create.table.ColDataType>`
 
 
 
@@ -4101,13 +6251,13 @@ SnowflakeSelectTranspiler
 *extends:* :ref:`JSQLSelectTranspiler<ai.starlake.transpiler.JSQLSelectTranspiler>` 
 
 | **SnowflakeSelectTranspiler** (expressionDeparserClass, builder)
-|          :ref:`Class<java.lang.Class>` expressionDeparserClass
+|          :ref:`ExpressionDeParser><java.lang.Class<? extends net.sf.jsqlparser.util.deparser.ExpressionDeParser>>` expressionDeparserClass
 |          :ref:`StringBuilder<java.lang.StringBuilder>` builder
 
 
 | *@Override*
 | **visit** (values, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          Values values
+|          :ref:`Values<net.sf.jsqlparser.statement.select.Values>` values
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -4115,7 +6265,7 @@ SnowflakeSelectTranspiler
 
 | *@Override*,| *@SuppressWarnings*
 | **visit** (tableFunction, params) → :ref:`StringBuilder<java.lang.StringBuilder>`
-|          TableFunction tableFunction
+|          :ref:`TableFunction<net.sf.jsqlparser.statement.select.TableFunction>` tableFunction
 |          S params
 |          returns :ref:`StringBuilder<java.lang.StringBuilder>`
 
@@ -4131,6 +6281,6 @@ SnowflakeTranspiler
 *extends:* :ref:`JSQLTranspiler<ai.starlake.transpiler.JSQLTranspiler>` 
 
 | **SnowflakeTranspiler** (parameters)
-|          :ref:`Map<java.util.Map>` parameters
+|          :ref:`Object><java.util.Map<java.lang.String,java.lang.Object>>` parameters
 
 

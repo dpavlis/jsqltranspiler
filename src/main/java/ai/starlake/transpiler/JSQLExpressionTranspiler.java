@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -23,6 +20,7 @@ import net.sf.jsqlparser.expression.BinaryExpression;
 import net.sf.jsqlparser.expression.CaseExpression;
 import net.sf.jsqlparser.expression.CastExpression;
 import net.sf.jsqlparser.expression.DateTimeLiteralExpression;
+import net.sf.jsqlparser.expression.DateUnitExpression;
 import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.ExpressionVisitorAdapter;
@@ -70,8 +68,10 @@ import net.sf.jsqlparser.util.deparser.ExpressionDeParser;
 import net.sf.jsqlparser.util.deparser.SelectDeParser;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -92,8 +92,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
 
   public final HashMap<String, Object> parameterMap = new LinkedHashMap<>();
 
-  public JSQLExpressionTranspiler(SelectDeParser deParser, StringBuilder buffer) {
-    super(deParser, buffer);
+  public JSQLExpressionTranspiler(SelectDeParser deParser, StringBuilder builder) {
+    super(deParser, builder);
   }
 
   // select ', { "' || keyword_name || '", "' || keyword_category || '" }'
@@ -130,6 +130,16 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     GEOGRAPHY, GEOMETRY;
   }
 
+  /**
+   * Controls how Snowflake VARIANT path expressions like {@code v:a.b} are transpiled: against a
+   * DuckDB {@code JSON} column (arrow operators) or against a DuckDB 1.4+ {@code VARIANT} column
+   * (bracket access, which preserves the stored types). Defaults to {@code VARIANT}; pass
+   * {@code VARIANT_MODE=JSON} as parameter or system property to target JSON columns instead.
+   */
+  public enum VariantMode {
+    JSON, VARIANT;
+  }
+
   enum TranspiledFunction {
     //@formatter:off
     CURRENT_DATE, CURRENT_DATETIME, CURRENT_TIME, CURRENT_TIMESTAMP, DATE, DATETIME, TIME, TIMESTAMP, DATE_ADD
@@ -145,12 +155,15 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     , SAFE_NEGATE, SAFE_SUBTRACT, TRUNC, ARRAY_CONCAT_AGG, COUNTIF, LOGICAL_AND, LOGICAL_OR, ARRAY, ARRAY_CONCAT
     , ARRAY_TO_STRING, GENERATE_ARRAY, GENERATE_DATE_ARRAY, GENERATE_TIMESTAMP_ARRAY, ARRAY_DISTINCT
     , ARRAY_INTERSECT, FIRST_VALUE, LAST_VALUE, PERCENTILE_CONT, PERCENTILE_DISC, GENERATE_UUID, BOOL, LAX_BOOL
-    , FLOAT64, LAX_FLOAT64, INT64, LAX_INT64, LAX_STRING, JSON_QUERY, JSON_VALUE, JSON_QUERY_ARRAY, JSON_VALUE_ARRAY
+    , FLOAT64, LAX_FLOAT64, INT64, LAX_INT64, LAX_STRING, JSON_OBJECT, JSON_QUERY, JSON_VALUE, JSON_QUERY_ARRAY, JSON_VALUE_ARRAY
     , JSON_EXTRACT, JSON_EXTRACT_ARRAY, JSON_EXTRACT_SCALAR, JSON_EXTRACT_STRING_ARRAY, PARSE_JSON, TO_JSON, TO_JSON_STRING, NVL
     , UNNEST, ST_GEOGPOINT, ST_GEOGFROMTEXT, ST_GEOGFROMGEOJSON, ST_GEOGFROMWKB, ST_ASBINARY, ST_ASGEOJSON, ST_ASTEXT
-    , ST_BUFFER, ST_NUMPOINTS, ST_DISTANCE, ST_MAXDISTANCE, ST_BOUNDINGBOX, ST_EXTENT, ST_PERIMETER, ST_LENGTH, ST_CLOSESTPOINT
+    , ST_builder, ST_NUMPOINTS, ST_DISTANCE, ST_MAXDISTANCE, ST_BOUNDINGBOX, ST_EXTENT, ST_PERIMETER, ST_LENGTH, ST_CLOSESTPOINT
     // GEO_MODE
     , ST_AREA
+
+    // Snowflake STRUCT functions
+    , OBJECT_CONSTRUCT, OBJECT_CONSTRUCT_KEEP_NULL
     ;
     //@formatter:on
 
@@ -175,7 +188,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     //@formatter:off
     ASINH, ACOSH, COSH, SINH, COTH, COSINE_DISTANCE, CSC, CSCH, EUCLIDEAN_DISTANCE, SEC, SECH, APPROX_QUANTILES
     , APPROX_TOP_COUNT, APPROX_TOP_SUM, SEARCH, VECTOR_SEARCH
-    , S2_CELLIDFROMPOINT, S2_COVERINGCELLIDS, ST_ANGLE, ST_AZIMUTH, ST_BUFFERWITHTOLERANCE, ST_CENTROID_AGG
+    , S2_CELLIDFROMPOINT, S2_COVERINGCELLIDS, ST_ANGLE, ST_AZIMUTH, ST_builderWITHTOLERANCE, ST_CENTROID_AGG
     , ST_CLUSTERDBSCAN, ST_GEOGFROM, ST_GEOGPOINTFROMGEOHASH, ST_GEOHASH, ST_HAUSDORFFDISTANCE
     , ST_INTERIORRINGS, ST_INTERSECTSBOX, ST_ISCOLLECTION, ST_LINEINTERPOLATEPOINT, ST_LINELOCATEPOINT, ST_LINESUBSTRING
     , ST_MAKEPOLYGONORIENTED, ST_SNAPTOGRID
@@ -225,7 +238,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         Pattern.MULTILINE | Pattern.CASE_INSENSITIVE)};
     boolean isDatePart = false;
     for (Pattern p : patterns) {
-      if (expression instanceof Column || expression instanceof Function) {
+      if (expression instanceof Column || expression instanceof Function
+          || expression instanceof DateUnitExpression) {
         Matcher matcher = p.matcher(expression.toString());
         isDatePart |= matcher.matches();
       } else if (expression instanceof StringValue) {
@@ -263,7 +277,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         Pattern.MULTILINE | Pattern.CASE_INSENSITIVE)};
     boolean isDatePart = false;
     for (Pattern p : patterns) {
-      if (expression instanceof Column || expression instanceof Function) {
+      if (expression instanceof Column || expression instanceof Function
+          || expression instanceof DateUnitExpression) {
         Matcher matcher = p.matcher(expression.toString());
         isDatePart |= matcher.matches();
       } else if (expression instanceof StringValue) {
@@ -280,7 +295,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         Pattern.MULTILINE | Pattern.CASE_INSENSITIVE)};
     boolean isDatePart = false;
     for (Pattern p : patterns) {
-      if (expression instanceof Column || expression instanceof Function) {
+      if (expression instanceof Column || expression instanceof Function
+          || expression instanceof DateUnitExpression) {
         Matcher matcher = p.matcher(expression.toString());
         isDatePart |= matcher.matches();
       } else if (expression instanceof StringValue) {
@@ -297,7 +313,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         Pattern.MULTILINE | Pattern.CASE_INSENSITIVE)};
     boolean isDatePart = false;
     for (Pattern p : patterns) {
-      if (expression instanceof Column || expression instanceof Function) {
+      if (expression instanceof Column || expression instanceof Function
+          || expression instanceof DateUnitExpression) {
         Matcher matcher = p.matcher(expression.toString());
         isDatePart |= matcher.matches();
       } else if (expression instanceof StringValue) {
@@ -314,7 +331,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         Pattern.MULTILINE | Pattern.CASE_INSENSITIVE)};
     boolean isDatePart = false;
     for (Pattern p : patterns) {
-      if (expression instanceof Column || expression instanceof Function) {
+      if (expression instanceof Column || expression instanceof Function
+          || expression instanceof DateUnitExpression) {
         Matcher matcher = p.matcher(expression.toString());
         isDatePart |= matcher.matches();
       } else if (expression instanceof StringValue) {
@@ -336,7 +354,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
             Pattern.MULTILINE | Pattern.CASE_INSENSITIVE)};
     boolean isDatePart = false;
     for (Pattern p : patterns) {
-      if (expression instanceof Column || expression instanceof Function) {
+      if (expression instanceof Column || expression instanceof Function
+          || expression instanceof DateUnitExpression) {
         Matcher matcher = p.matcher(expression.toString());
         isDatePart |= matcher.matches();
       } else if (expression instanceof StringValue) {
@@ -354,7 +373,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         Pattern.MULTILINE | Pattern.CASE_INSENSITIVE)};
     boolean isDatePart = false;
     for (Pattern p : patterns) {
-      if (expression instanceof Column || expression instanceof Function) {
+      if (expression instanceof Column || expression instanceof Function
+          || expression instanceof DateUnitExpression) {
         Matcher matcher = p.matcher(expression.toString());
         isDatePart |= matcher.matches();
       } else if (expression instanceof StringValue) {
@@ -372,7 +392,8 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         Pattern.MULTILINE | Pattern.CASE_INSENSITIVE)};
     boolean isDatePart = false;
     for (Pattern p : patterns) {
-      if (expression instanceof Column || expression instanceof Function) {
+      if (expression instanceof Column || expression instanceof Function
+          || expression instanceof DateUnitExpression) {
         Matcher matcher = p.matcher(expression.toString());
         isDatePart |= matcher.matches();
       } else if (expression instanceof StringValue) {
@@ -390,7 +411,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         Pattern.MULTILINE | Pattern.CASE_INSENSITIVE)};
     boolean isDatePart = false;
     for (Pattern p : patterns) {
-      if (expression instanceof Column || expression instanceof Function) {
+      if (expression instanceof DateUnitExpression) {
         Matcher matcher = p.matcher(expression.toString());
         isDatePart |= matcher.matches();
       } else if (expression instanceof StringValue) {
@@ -494,9 +515,32 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     }
   }
 
+  /**
+   * Replaces quoted {@code TYPE 'literal'} function arguments parsed as DateTimeLiteralExpression
+   * with the equivalent implicit CastExpression, which is what older jsqlparser versions produced
+   * and what the DateTime function rewrites operate on.
+   */
+  @SuppressWarnings({"unchecked"})
+  protected static void rewriteDateTimeLiteralParameters(Function function) {
+    if (hasParameters(function)) {
+      ExpressionList<Expression> parameters = (ExpressionList<Expression>) function.getParameters();
+      parameters.replaceAll(e -> {
+        if (e instanceof DateTimeLiteralExpression) {
+          String value = ((DateTimeLiteralExpression) e).getValue();
+          if (value != null && value.length() > 1 && value.startsWith("'") && value.endsWith("'")) {
+            return toImplicitCast((DateTimeLiteralExpression) e);
+          }
+        }
+        return e;
+      });
+    }
+  }
+
   @SuppressWarnings({"PMD.CyclomaticComplexity", "PMD.ExcessiveMethodLength"})
   @Override
   public <S> StringBuilder visit(Function function, S params) {
+    rewriteDateTimeLiteralParameters(function);
+
     String functionName = function.getName();
     boolean hasParameters = hasParameters(function);
     boolean hasSafePrefix = false;
@@ -1200,6 +1244,14 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
           rewrittenExpression = new Function("If", new Function("JSon_Valid", parameters.get(0)),
               function, new ArrayConstructor());
           break;
+        case JSON_OBJECT:
+          switch (paramCount) {
+            case 2:
+              function.setParameters(new CastExpression(parameters.get(0), "VARCHAR"),
+                  parameters.get(1));
+              break;
+          }
+          break;
         case JSON_QUERY:
           switch (paramCount) {
             case 1:
@@ -1339,7 +1391,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
           // SELECT ST_AsText(ST_MakeEnvelope(0,0,1,1));
           function.setParameters(new CastExpression(parameters.get(0), "GEOMETRY"));
           break;
-        case ST_BUFFER:
+        case ST_builder:
           if (paramCount > 3) {
             warning("USE_SPHEROID, ENDCAP, SIDE are not supported.");
           }
@@ -1351,11 +1403,11 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
                       parameters.get(1));
                   break;
                 case GEOGRAPHY:
-                  // SELECT ST_TRANSFORM(ST_BUFFER(ST_TRANSFORM(ST_GEOMFROMTEXT('POLYGON((0 0, 0 1,
+                  // SELECT ST_TRANSFORM(ST_builder(ST_TRANSFORM(ST_GEOMFROMTEXT('POLYGON((0 0, 0 1,
                   // 1 1, 1 0, 0 0))'), 'EPSG:4326', 'EPSG:6933'), 20), 'EPSG:6933', 'EPSG:4326') as
-                  // buffer
+                  // builder
                   rewrittenExpression = new Function("ST_TRANSFORM",
-                      new Function("ST_Buffer$$",
+                      new Function("ST_builder$$",
                           new Function("ST_TRANSFORM",
                               new CastExpression(parameters.get(0), "GEOMETRY"),
                               new StringValue("EPSG:4326"), new StringValue("EPSG:6933")),
@@ -1372,7 +1424,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
                   break;
                 case GEOGRAPHY:
                   rewrittenExpression = new Function("ST_TRANSFORM",
-                      new Function("ST_Buffer$$",
+                      new Function("ST_builder$$",
                           new Function("ST_TRANSFORM",
                               new CastExpression(parameters.get(0), "GEOMETRY"),
                               new StringValue("EPSG:4326"), new StringValue("EPSG:6933")),
@@ -1482,6 +1534,20 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
               function.setName("ST_Area_Spheroid");
               break;
           }
+          break;
+        case OBJECT_CONSTRUCT:
+        case OBJECT_CONSTRUCT_KEEP_NULL:
+          if (paramCount == 1 && parameters.get(0) instanceof AllColumns
+              || parameters.get(0) instanceof AllColumns) {
+            warning("`AllColumns` \"*\" is not supported.");
+          } else {
+            ArrayList<SelectItem<?>> items = new ArrayList<>();
+            for (int i = 0; i < paramCount; i += 2) {
+              items.add(new SelectItem<>(parameters.get(i + 1), parameters.get(i).toString()));
+            }
+            rewrittenExpression = new StructType(StructType.Dialect.DUCKDB, items);
+          }
+          break;
       }
     }
     if (rewrittenExpression == null) {
@@ -1489,21 +1555,21 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     } else {
       rewrittenExpression.accept(this, null);
     }
-    return buffer;
+    return builder;
   }
 
   @Override
   public <S> StringBuilder visit(AllColumns allColumns, S context) {
-    if (allColumns.getReplaceExpressions() != null) {
-      warning("DuckDB replaces Column's content instead Column's label, so unsupported.");
-      allColumns.setReplaceExpressions(null);
-    }
+    // if (allColumns.getReplaceExpressions() != null) {
+    // warning("DuckDB replaces Column's content instead Column's label, so unsupported.");
+    // allColumns.setReplaceExpressions(null);
+    // }
 
     // DuckDB uses "EXCLUDE" instead "EXCEPT", because why not?!
     super.visit(
         allColumns.getExceptColumns() != null ? allColumns.setExceptKeyword("EXCLUDE") : allColumns,
         null);
-    return buffer;
+    return builder;
   }
 
   @SuppressWarnings({"PMD.ExcessiveMethodLength"})
@@ -1560,7 +1626,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     if (windowDefinition != null && function.getType() == AnalyticType.WITHIN_GROUP
         && windowDefinition.getWindowName() == null && windowDefinition.getWindowElement() == null
         && (windowDefinition.getPartitionBy() == null
-            || windowDefinition.getPartitionBy().getPartitionExpressionList() == null)) {
+            || windowDefinition.getPartitionBy().isEmpty())) {
       function.setFuncOrderBy(windowDefinition.getOrderByElements());
       function.setWindowDefinition(new WindowDefinition());
       function.setType(AnalyticType.FILTER_ONLY);
@@ -1667,7 +1733,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     } else {
       rewrittenExpression.accept(this, null);
     }
-    return buffer;
+    return builder;
   }
 
   private Expression rewriteLength(ExpressionList<?> parameters) {
@@ -2025,12 +2091,14 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
 
         if (parameters.get(1) instanceof IntervalExpression) {
           IntervalExpression interval = (IntervalExpression) parameters.get(1);
-          String negatedParameter =
-              interval.getParameter().startsWith("-") ? interval.getParameter().substring(1)
-                  : "-" + interval.getParameter();
-          interval
-              .setExpression(new StringValue(negatedParameter + " " + interval.getIntervalType()));
-          interval.setIntervalType(null);
+          // negative numbers must be quoted
+          if (interval.getParameter() != null) {
+            if (interval.getParameter().startsWith("-")) {
+              interval.setParameter(interval.getParameter().substring(1));
+            } else {
+              interval.setParameter("'-" + interval.getParameter() + "'");
+            }
+          }
 
           newParameters.add(interval);
         } else {
@@ -2080,9 +2148,11 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
 
         if (parameters.get(1) instanceof IntervalExpression) {
           IntervalExpression interval = (IntervalExpression) parameters.get(1);
-          interval.setExpression(
-              new StringValue(interval.getParameter() + " " + interval.getIntervalType()));
-          interval.setIntervalType(null);
+
+          // negative numbers must be quoted
+          if (interval.getParameter() != null && interval.getParameter().startsWith("-")) {
+            interval.setParameter("'" + interval.getParameter() + "'");
+          }
           newParameters.add(interval);
         } else {
           newParameters.add(
@@ -2233,7 +2303,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     } else {
       super.visit(extractExpression, null);
     }
-    return buffer;
+    return builder;
   }
 
   @Override
@@ -2261,13 +2331,13 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     }
 
     super.visit(stringValue.withPrefix(null), null);
-    return buffer;
+    return builder;
   }
 
   @Override
   public <S> StringBuilder visit(HexValue hexValue, S context) {
     super.visit(hexValue.getLongValue(), null);
-    return buffer;
+    return builder;
   }
 
   public static String convertUnicode(String input) {
@@ -2306,9 +2376,9 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     // CAST has been rewritten before already
     if ("$$".equalsIgnoreCase(castExpression.keyword)) {
       castExpression.getLeftExpression().accept(this, null);
-      this.buffer.append("::");
-      this.buffer.append(rewriteType(castExpression.getColDataType()));
-      return this.buffer;
+      this.builder.append("::");
+      this.builder.append(rewriteType(castExpression.getColDataType()));
+      return this.builder;
     }
 
     // same cast
@@ -2329,7 +2399,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
                   CastExpression.DataType.TIME_WITHOUT_TIME_ZONE)) {
 
         castExpression.getLeftExpression().accept(this, null);
-        return buffer;
+        return builder;
       }
     }
 
@@ -2348,7 +2418,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
       Function f = new Function("Encode$$", castExpression.getLeftExpression());
       f.accept(this, null);
 
-      return buffer;
+      return builder;
     }
 
     if (castExpression.keyword != null && castExpression.keyword.endsWith("$$")) {
@@ -2357,143 +2427,168 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     }
 
     if (castExpression.isImplicitCast()) {
-      this.buffer.append(rewriteType(castExpression.getColDataType()));
-      this.buffer.append(" ");
+      this.builder.append(rewriteType(castExpression.getColDataType()));
+      this.builder.append(" ");
       castExpression.getLeftExpression().accept(this, null);
     } else if (castExpression.isUseCastKeyword()) {
-      this.buffer.append(castExpression.keyword).append("(");
+      this.builder.append(castExpression.keyword).append("(");
       castExpression.getLeftExpression().accept(this, null);
-      this.buffer.append(" AS ");
-      this.buffer.append(castExpression.getColumnDefinitions().size() > 1
+      this.builder.append(" AS ");
+      this.builder.append(castExpression.getColumnDefinitions().size() > 1
           ? "ROW(" + Select.getStringList(castExpression.getColumnDefinitions()) + ")"
           : rewriteType(castExpression.getColDataType()).toString());
-      this.buffer.append(")");
+      this.builder.append(")");
     } else {
       castExpression.getLeftExpression().accept(this, null);
-      this.buffer.append("::");
-      this.buffer.append(rewriteType(castExpression.getColDataType()));
+      this.builder.append("::");
+      this.builder.append(rewriteType(castExpression.getColDataType()));
     }
-    return buffer;
+    return builder;
   }
 
   @Override
   public <S> StringBuilder visit(StructType structType, S context) {
     if (structType.getArguments() != null && !structType.getArguments().isEmpty()) {
-      buffer.append("{ ");
+      builder.append("{ ");
       int i = 0;
       for (SelectItem<?> e : structType.getArguments()) {
         if (0 < i) {
-          buffer.append(",");
+          builder.append(",");
         }
         if (e.getAlias() != null) {
-          buffer.append(e.getAlias().getName());
+          builder.append(e.getAlias().getName());
         } else if (structType.getParameters() != null && i < structType.getParameters().size()) {
-          buffer.append(structType.getParameters().get(i).getKey());
+          builder.append(structType.getParameters().get(i).getKey());
         }
 
-        buffer.append(":");
+        builder.append(":");
         e.getExpression().accept(this, null);
 
         i++;
       }
-      buffer.append(" }");
+      builder.append(" }");
     }
 
     if (structType.getParameters() != null && !structType.getParameters().isEmpty()) {
-      buffer.append("::STRUCT( ");
+      builder.append("::STRUCT( ");
       int i = 0;
       for (Map.Entry<String, ColDataType> e : structType.getParameters()) {
         if (0 < i++) {
-          buffer.append(",");
+          builder.append(",");
         }
-        buffer.append(e.getKey()).append(" ");
-        buffer.append(e.getValue());
+        builder.append(e.getKey()).append(" ");
+        builder.append(e.getValue());
       }
-      buffer.append(")");
+      builder.append(")");
     }
-    return buffer;
+    return builder;
   }
 
   public <S> StringBuilder visit(JsonFunction jsonFunction, S context) {
     switch (jsonFunction.getType()) {
       case OBJECT:
-        buffer.append("JSON_OBJECT( ");
+        builder.append("JSON_OBJECT( ");
         int i = 0;
-
         for (JsonKeyValuePair keyValuePair : jsonFunction.getKeyValuePairs()) {
           if (i > 0) {
-            buffer.append(", ");
+            builder.append(", ");
           }
-
-          if (keyValuePair.isUsingValueKeyword()) {
-            if (keyValuePair.isUsingKeyKeyword()) {
-              buffer.append("KEY ");
-            }
-
-            buffer.append(keyValuePair.getKey()).append(" VALUE ").append(keyValuePair.getValue());
-          } else {
-            buffer.append(keyValuePair.getKey()).append(":").append(keyValuePair.getValue());
-          }
-
-          if (keyValuePair.isUsingFormatJson()) {
-            buffer.append(" FORMAT JSON");
-          }
-
+          keyValuePair.append(builder);
           ++i;
         }
 
         if (jsonFunction.getOnNullType() != null) {
           switch (jsonFunction.getOnNullType()) {
             case NULL:
-              buffer.append(" NULL ON NULL");
+              builder.append(" NULL ON NULL");
               break;
             case ABSENT:
-              buffer.append(" ABSENT On NULL");
+              builder.append(" ABSENT On NULL");
           }
         }
 
         if (jsonFunction.getUniqueKeysType() != null) {
           switch (jsonFunction.getUniqueKeysType()) {
             case WITH:
-              buffer.append(" WITH UNIQUE KEYS");
+              builder.append(" WITH UNIQUE KEYS");
               break;
             case WITHOUT:
-              buffer.append(" WITHOUT UNIQUE KEYS");
+              builder.append(" WITHOUT UNIQUE KEYS");
           }
         }
 
-        buffer.append(" ) ");
+        builder.append(" ) ");
         break;
 
       case ARRAY:
-        buffer.append("JSON_ARRAY( ");
+        builder.append("JSON_ARRAY( ");
         int k = 0;
 
         for (JsonFunctionExpression expr : jsonFunction.getExpressions()) {
           if (k > 0) {
-            buffer.append(", ");
+            builder.append(", ");
           }
           expr.getExpression().accept(this, context);
-          buffer.append(expr.isUsingFormatJson() ? " FORMAT JSON" : "");
+          builder.append(expr.isUsingFormatJson() ? " FORMAT JSON" : "");
           ++k;
         }
 
         if (jsonFunction.getOnNullType() != null) {
           switch (jsonFunction.getOnNullType()) {
             case NULL:
-              buffer.append(" NULL ON NULL ");
+              builder.append(" NULL ON NULL ");
               break;
             case ABSENT:
-              buffer.append(" ABSENT ON NULL ");
+              builder.append(" ABSENT ON NULL ");
           }
         }
-        buffer.append(") ");
+        builder.append(") ");
         break;
 
+      case VALUE:
+        // JSON_VALUE → JSON_EXTRACT_STRING for DuckDB (strips JSON quoting)
+        builder.append("JSON_EXTRACT_STRING(");
+        if (jsonFunction.getInputExpression() != null) {
+          jsonFunction.getInputExpression().getExpression().accept(this, context);
+        }
+        builder.append(", ");
+        if (jsonFunction.getJsonPathExpression() != null) {
+          Expression pathExpr = jsonFunction.getJsonPathExpression();
+          if (pathExpr instanceof StringValue) {
+            String jsonPath = ((StringValue) pathExpr).getValue();
+            jsonPath = jsonPath.replaceAll("\\$\\[([^]]+)]", "\\$.$1");
+            jsonPath = jsonPath.replaceAll("\\[\"(.*?)\"]", "\"$1\"");
+            new StringValue(jsonPath).accept(this, context);
+          } else {
+            pathExpr.accept(this, context);
+          }
+        }
+        builder.append(")");
+        break;
+      case QUERY:
+        // JSON_QUERY → JSON_EXTRACT for DuckDB
+        builder.append("JSON_EXTRACT(");
+        if (jsonFunction.getInputExpression() != null) {
+          jsonFunction.getInputExpression().getExpression().accept(this, context);
+        }
+        builder.append(", ");
+        if (jsonFunction.getJsonPathExpression() != null) {
+          Expression pathExpr = jsonFunction.getJsonPathExpression();
+          if (pathExpr instanceof StringValue) {
+            String jsonPath = ((StringValue) pathExpr).getValue();
+            jsonPath = jsonPath.replaceAll("\\$\\[([^]]+)]", "\\$.$1");
+            jsonPath = jsonPath.replaceAll("\\[\"(.*?)\"]", "\"$1\"");
+            new StringValue(jsonPath).accept(this, context);
+          } else {
+            pathExpr.accept(this, context);
+          }
+        }
+        builder.append(")");
+        break;
       default:
-        jsonFunction.appendTo(buffer);
+        jsonFunction.appendTo(builder);
     }
-    return buffer;
+    return builder;
   }
 
 
@@ -2521,7 +2616,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
   }
 
   public final void warning(String s) {
-    buffer.append("/* Approximation: ").append(s).append(" */ ");
+    builder.append("/* Approximation: ").append(s).append(" */ ");
   }
 
   public static String convertByteStringToUnicode(String byteString) {
@@ -2579,8 +2674,34 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
   private final static String[] TIME_SEPARATORS = {"", "'T'", " "};
   private final static String[] ZONE_FORMATS = {"z", "zz", "zzzz", "Z", "X", "XXX"};
 
+  /**
+   * Turns a {@code TYPE 'literal'} parsed as DateTimeLiteralExpression into the equivalent implicit
+   * CastExpression. Older jsqlparser versions produced that implicit cast directly and all the
+   * DateTime rewrites (format normalisation, TIMESTAMPTZ promotion) operate on it, but newer
+   * parsers return a DateTimeLiteralExpression holding the still-quoted literal image.
+   */
+  public static CastExpression toImplicitCast(DateTimeLiteralExpression expression) {
+    return new CastExpression(new ColDataType(expression.getType().name()), expression.getValue());
+  }
+
+  @Override
+  public <S> StringBuilder visit(DateTimeLiteralExpression expression, S context) {
+    String value = expression.getValue();
+    if (value != null && value.length() > 1 && value.startsWith("'") && value.endsWith("'")) {
+      toImplicitCast(expression).accept(this, context);
+      return builder;
+    }
+    return super.visit(expression, context);
+  }
+
   @SuppressWarnings({"PMD.EmptyCatchBlock"})
   public static Expression castDateTime(DateTimeLiteralExpression expression) {
+    String quotedValue = expression.getValue();
+    if (quotedValue != null && quotedValue.length() > 1 && quotedValue.startsWith("'")
+        && quotedValue.endsWith("'")) {
+      return castDateTime(toImplicitCast(expression));
+    }
+
     SimpleDateFormat f = new SimpleDateFormat();
     f.setTimeZone(TimeZone.getTimeZone("UTC"));
     f.setLenient(false);
@@ -2781,7 +2902,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
       super.visit(expression, null);
     }
 
-    return buffer;
+    return builder;
   }
 
   @Override
@@ -2793,7 +2914,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         likeExpression.setLikeKeyWord("SIMILAR TO");
     }
     super.visit(likeExpression, null);
-    return buffer;
+    return builder;
   }
 
   @Override
@@ -2801,7 +2922,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     CastExpression castExpression =
         new CastExpression("Cast", function.getExpression(), function.getColDataType().toString());
     castExpression.accept(this, null);
-    return buffer;
+    return builder;
   }
 
   public static boolean isEmpty(Collection<?> collection) {
@@ -2834,10 +2955,10 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     }
 
     if (tableName != null && !tableName.isEmpty()) {
-      buffer.append(tableName).append(column.getTableDelimiter());
+      builder.append(tableName).append(column.getTableDelimiter());
     }
 
-    buffer.append(column.getColumnName());
+    builder.append(column.getColumnName());
     if (column.getArrayConstructor() != null) {
       ArrayConstructor arrayConstructor = column.getArrayConstructor();
 
@@ -2848,7 +2969,7 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
 
       column.getArrayConstructor().accept(this, null);
     }
-    return buffer;
+    return builder;
   }
 
   @Override
@@ -2861,23 +2982,50 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
     } else {
       super.visit(expressionList, null);
     }
-    return buffer;
+    return builder;
+  }
+
+  public VariantMode getVariantMode() {
+    String configured =
+        parameterMap.containsKey("VARIANT_MODE") ? String.valueOf(parameterMap.get("VARIANT_MODE"))
+            : System.getProperty("VARIANT_MODE");
+    if ("JSON".equalsIgnoreCase(configured)) {
+      return VariantMode.JSON;
+    }
+    return VariantMode.VARIANT;
   }
 
   @Override
   public <S> StringBuilder visit(JsonExpression e, S context) {
-    // new CastExpression(e.getExpression(), "JSON").accept(this, context);
+    final int startPosition = builder.length();
     e.getExpression().accept(this, context);
 
     for (Map.Entry<Expression, String> ident : e.getIdentList()) {
       String operatorStr = ident.getValue();
+      Expression expr = ident.getKey();
+
       if (operatorStr.equalsIgnoreCase(":")) {
-        buffer.append("->");
+        // Snowflake VARIANT path access, e. g. v:a.b or v:arr[0]::string
+        // the cast binds inside the ident: v:a.b::string parses as JsonExpression(v, [a.b::string])
+        CastExpression castExpression = null;
+        if (expr instanceof CastExpression) {
+          castExpression = (CastExpression) expr;
+          expr = castExpression.getLeftExpression();
+        }
+
+        if (expr instanceof Column) {
+          appendVariantPath(startPosition, (Column) expr, castExpression);
+          continue;
+        }
+
+        builder.append("->");
+        if (castExpression != null) {
+          expr = castExpression;
+        }
       } else {
-        buffer.append(operatorStr);
+        builder.append(operatorStr);
       }
 
-      Expression expr = ident.getKey();
       if (expr instanceof Column) {
         new StringValue(expr.toString()).accept(this, context);
       } else if (expr instanceof ArrayConstructor) {
@@ -2892,7 +3040,93 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
         expr.accept(this, context);
       }
     }
-    return buffer;
+    return builder;
   }
 
+  /**
+   * Appends a Snowflake {@code :} path held in a (possibly dotted) Column, with an optional
+   * trailing array subscript and an optional cast, e. g. {@code v:a.b::string} or {@code v:arr[0]}.
+   *
+   * <p>
+   * In {@link VariantMode#VARIANT} the path is written as DuckDB bracket access {@code v['a']['b']}
+   * which preserves the types stored in a VARIANT column; numeric array subscripts are shifted from
+   * Snowflake's 0-based to DuckDB's 1-based indexing. In {@link VariantMode#JSON} the path is
+   * written with one arrow per step {@code v->'a'->'b'}, using {@code ->>} on the final step when
+   * the path is cast to a text type so the result is the unquoted string, matching Snowflake.
+   * </p>
+   */
+  private void appendVariantPath(int startPosition, Column column, CastExpression castExpression) {
+    final boolean variantMode = getVariantMode() == VariantMode.VARIANT;
+    final boolean textCast =
+        castExpression != null && CastExpression.isText(castExpression.getColDataType());
+
+    ArrayList<String> keys = new ArrayList<>();
+    Table table = column.getTable();
+    if (table != null && table.getFullyQualifiedName() != null
+        && !table.getFullyQualifiedName().isEmpty()) {
+      for (String part : table.getFullyQualifiedName().split("\\.")) {
+        keys.add(unquoteIdentifier(part));
+      }
+    }
+    keys.add(unquoteIdentifier(column.getColumnName()));
+
+    ArrayConstructor arrayConstructor = column.getArrayConstructor();
+    List<? extends Expression> subscripts =
+        arrayConstructor != null ? arrayConstructor.getExpressions() : Collections.emptyList();
+
+    for (int i = 0; i < keys.size(); i++) {
+      boolean last = i == keys.size() - 1 && subscripts.isEmpty();
+      String key = keys.get(i).replace("'", "''");
+      if (variantMode) {
+        builder.append("['").append(key).append("']");
+      } else {
+        builder.append(textCast && last ? "->>" : "->").append("'").append(key).append("'");
+      }
+    }
+
+    for (int i = 0; i < subscripts.size(); i++) {
+      boolean last = i == subscripts.size() - 1;
+      Expression subscript = subscripts.get(i);
+      if (variantMode) {
+        builder.append("[");
+        if (subscript instanceof LongValue) {
+          // DuckDB bracket access on VARIANT arrays is 1-based while Snowflake is 0-based
+          builder.append(((LongValue) subscript).getValue() + 1);
+        } else if (subscript instanceof StringValue) {
+          subscript.accept(this, null);
+        } else {
+          subscript.accept(this, null);
+          builder.append(" + 1");
+        }
+        builder.append("]");
+      } else {
+        builder.append(textCast && last ? "->>" : "->");
+        subscript.accept(this, null);
+      }
+    }
+
+    if (castExpression != null) {
+      if (!variantMode) {
+        // arrow operators bind weaker than "::", so the path needs parentheses
+        builder.insert(startPosition, "(");
+        builder.append(")");
+      }
+      builder.append("::").append(rewriteType(castExpression.getColDataType()));
+    }
+  }
+
+  private static String unquoteIdentifier(String identifier) {
+    if (identifier.length() > 1 && identifier.startsWith("\"") && identifier.endsWith("\"")) {
+      return identifier.substring(1, identifier.length() - 1);
+    }
+    return identifier;
+  }
+
+  public <S> StringBuilder visit(ArrayConstructor arrayConstructor, S context) {
+    if (arrayConstructor.getDataType() != null) {
+      warning("DATA TYPE is unsupported for ArrayContructor");
+      arrayConstructor.setDataType(null);
+    }
+    return super.visit(arrayConstructor, context);
+  }
 }

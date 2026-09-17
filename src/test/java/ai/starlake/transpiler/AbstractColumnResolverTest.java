@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +15,6 @@ package ai.starlake.transpiler;
 
 import ai.starlake.transpiler.schema.JdbcMetaData;
 import ai.starlake.transpiler.schema.JdbcResultSetMetaData;
-import ai.starlake.transpiler.snowflake.AsciiTreeBuilder;
 import com.opencsv.CSVWriter;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
@@ -31,7 +27,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import java.io.File;
 import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.concurrent.ExecutorService;
@@ -70,7 +65,7 @@ public class AbstractColumnResolverTest extends JSQLTranspilerTest {
       }
     }
 
-    ResultSetMetaData resultSetMetaData =
+    JdbcResultSetMetaData resultSetMetaData =
         JSQLColumResolver.getResultSetMetaData(t.providedSqlStr, metaData);
 
     StringWriter stringWriter = new StringWriter();
@@ -95,7 +90,10 @@ public class AbstractColumnResolverTest extends JSQLTranspilerTest {
     for (int i = 1; i <= maxI; i++) {
       csvWriter.writeNext(new String[] {String.valueOf(i), resultSetMetaData.getColumnLabel(i),
           resultSetMetaData.getColumnName(i), resultSetMetaData.getTableName(i),
-          resultSetMetaData.getSchemaName(i), resultSetMetaData.getCatalogName(i),
+          resultSetMetaData.getSchemaName(i) == null ? resultSetMetaData.getScopeSchema(i)
+              : resultSetMetaData.getSchemaName(i),
+          resultSetMetaData.getCatalogName(i) == null ? resultSetMetaData.getScopeCatalog(i)
+              : resultSetMetaData.getCatalogName(i),
           JdbcMetaData.getTypeName(resultSetMetaData.getColumnType(i)),
           resultSetMetaData.getColumnTypeName(i), String.valueOf(resultSetMetaData.getPrecision(i)),
           String.valueOf(resultSetMetaData.getScale(i)),
@@ -205,7 +203,7 @@ public class AbstractColumnResolverTest extends JSQLTranspilerTest {
     return res;
   }
 
-  void assertThatResolvesInto(ResultSetMetaData res, String[][] expectedColumns)
+  void assertThatResolvesInto(JdbcResultSetMetaData res, String[][] expectedColumns)
       throws SQLException {
     Assertions.assertThat(res.getColumnCount()).isEqualTo(expectedColumns.length);
     for (int i = 0; i < res.getColumnCount(); i++) {
@@ -216,9 +214,11 @@ public class AbstractColumnResolverTest extends JSQLTranspilerTest {
 
         // catalog, schema, table, column, label
       } else if (expectedColumns[i].length == 5) {
-        Assertions
-            .assertThat(new String[] {res.getCatalogName(i + 1), res.getSchemaName(i + 1),
-                res.getTableName(i + 1), res.getColumnName(i + 1), res.getColumnLabel(i + 1)})
+        Assertions.assertThat(new String[] {
+            res.getCatalogName(i + 1) == null ? res.getScopeCatalog(i + 1)
+                : res.getCatalogName(i + 1),
+            res.getSchemaName(i + 1) == null ? res.getScopeSchema(i + 1) : res.getSchemaName(i + 1),
+            res.getTableName(i + 1), res.getColumnName(i + 1), res.getColumnLabel(i + 1)})
             .isEqualTo(expectedColumns[i]);
 
         // Label is explicitly expected

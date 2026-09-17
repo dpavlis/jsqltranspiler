@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,6 +13,11 @@
  */
 package ai.starlake.transpiler.schema;
 
+import ai.starlake.transpiler.CatalogNotFoundException;
+import ai.starlake.transpiler.SchemaNotFoundException;
+import ai.starlake.transpiler.TableNotFoundException;
+import ai.starlake.transpiler.diff.Attribute;
+import ai.starlake.transpiler.diff.DBSchema;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 
@@ -36,6 +38,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -51,13 +54,24 @@ public final class JdbcMetaData implements DatabaseMetaData {
   public final static Logger LOGGER = Logger.getLogger(JdbcMetaData.class.getName());
   public static final Map<Integer, String> SQL_TYPE_NAME_MAP = new HashMap<>();
 
-  private CaseInsensitiveLinkedHashMap<JdbcCatalog> catalogs = new CaseInsensitiveLinkedHashMap<>();
+  private final CaseInsensitiveLinkedHashMap<JdbcCatalog> catalogs =
+      new CaseInsensitiveLinkedHashMap<>();
   private String currentCatalogName;
   private String currentSchemaName;
   private String catalogSeparator = ".";
 
   private final CaseInsensitiveLinkedHashMap<Table> fromTables =
       new CaseInsensitiveLinkedHashMap<>() {};
+
+  /**
+   * The tables of the queries enclosing this one, for a correlated sub query.
+   * <p>
+   * Separate from {@link #fromTables} on purpose: a qualified reference falls back to this scope
+   * when the name is not one of this query's own tables, while an unqualified column is looked up
+   * in {@link #fromTables} alone, so the inner query keeps deciding what a bare column name means.
+   */
+  private final CaseInsensitiveLinkedHashMap<Table> outerFromTables =
+      new CaseInsensitiveLinkedHashMap<>();
 
   private final CaseInsensitiveLinkedHashMap<Table> naturalJoinedTables =
       new CaseInsensitiveLinkedHashMap<>();
@@ -67,6 +81,185 @@ public final class JdbcMetaData implements DatabaseMetaData {
       new CaseInsensitiveLinkedHashMap<>();
 
   private DatabaseSpecific databaseType = DatabaseSpecific.OTHER;
+
+  public String getDDLStr(String catalogName) {
+    StringBuilder builder = new StringBuilder();
+
+    JdbcCatalog catalog = catalogs.get(catalogName);
+    if (catalog != null) {
+      for (JdbcSchema schema : catalog.schemas.values()) {
+        if (!schema.tableSchema.isEmpty()) {
+          builder.append("DROP SCHEMA IF EXISTS ").append(schema.tableSchema).append(" CASCADE;\n");
+          builder.append("CREATE SCHEMA ").append(schema.tableSchema).append(";\n");
+        }
+
+        for (JdbcTable table : schema.tables.values()) {
+          if (!table.tableName.isEmpty() && !table.getColumns().isEmpty()) {
+            builder.append(TypeMappingSystem.generateCreateTableDDL(table, "h2",
+                !schema.tableSchema.isEmpty()));
+          }
+        }
+
+      }
+    }
+
+    return builder.toString();
+  }
+
+  /**
+   * Generates a CREATE TABLE DDL statement for this JdbcTable
+   * 
+   * @param includeSchema whether to include schema in table name
+   * @return DDL CREATE TABLE statement
+   */
+  public static String generateCreateTableDDL(JdbcTable table, boolean includeSchema) {
+    StringBuilder ddl = new StringBuilder();
+
+    // Table name with optional schema
+    String fullTableName =
+        includeSchema && table.tableSchema != null && !table.tableSchema.isEmpty()
+            ? table.tableSchema + "." + table.tableName
+            : table.tableName;
+
+    ddl.append("DROP TABLE IF EXISTS ").append(fullTableName).append(";\n");
+    ddl.append("CREATE TABLE ").append(fullTableName).append(" (\n");
+
+    // Column definitions
+    StringJoiner columnJoiner = new StringJoiner(",\n  ", "  ", "");
+
+    for (JdbcColumn column : table.getColumns()) {
+      String columnDef = generateColumnDefinition(column);
+      columnJoiner.add(columnDef);
+    }
+
+    ddl.append(columnJoiner);
+
+    // Primary key constraint
+    if (table.primaryKey != null && !table.primaryKey.columnNames.isEmpty()) {
+      ddl.append(",\n  ");
+      ddl.append("CONSTRAINT ")
+          .append(table.primaryKey.primaryKeyName != null ? table.primaryKey.primaryKeyName
+              : "pk_" + table.tableName);
+      ddl.append(" PRIMARY KEY (");
+      ddl.append(String.join(", ", table.primaryKey.columnNames));
+      ddl.append(")");
+    }
+
+    ddl.append("\n);\n");
+
+    return ddl.toString();
+  }
+
+  /**
+   * Generates column definition string for a JdbcColumn
+   */
+  private static String generateColumnDefinition(JdbcColumn column) {
+    StringBuilder colDef = new StringBuilder();
+
+    colDef.append(column.columnName).append(" ");
+    colDef.append(
+        mapTypeToH2(column.dataType, column.typeName, column.columnSize, column.decimalDigits));
+
+
+    // Nullable constraint
+    if (column.nullable != null && column.nullable == 0) {
+      colDef.append(" NOT NULL");
+    }
+
+    // Default value
+    if (column.columnDefinition != null && !column.columnDefinition.trim().isEmpty()) {
+      colDef.append(" DEFAULT ").append(column.columnDefinition);
+    }
+
+
+    return colDef.toString();
+  }
+
+  /**
+   * Maps both Java class types and JDBC types to H2 column types
+   */
+  private static String mapTypeToH2(Integer jdbcType, String typeName, Integer columnSize,
+      Integer decimalDigits) {
+    // First try Java class type mapping
+    String s =
+        columnSize != null && columnSize > 0 ? "VARCHAR(" + columnSize + ")" : "VARCHAR(255)";
+    if (typeName != null) {
+      String upperType = typeName.toUpperCase();
+      switch (upperType) {
+        case "LONG":
+        case "JAVA.LANG.LONG":
+          return "BIGINT";
+        case "STRING":
+        case "JAVA.LANG.STRING":
+          return s;
+        case "OBJECT":
+        case "JAVA.LANG.OBJECT":
+          return "JSON";
+        case "INTEGER":
+        case "INT":
+        case "JAVA.LANG.INTEGER":
+          return "INTEGER";
+        case "DOUBLE":
+        case "JAVA.LANG.DOUBLE":
+          return "DOUBLE";
+        case "BOOLEAN":
+        case "JAVA.LANG.BOOLEAN":
+          return "BOOLEAN";
+        case "BYTE[]":
+        case "BYTES":
+          return columnSize != null && columnSize > 0 ? "VARBINARY(" + columnSize + ")" : "BLOB";
+        case "DATE":
+        case "JAVA.SQL.DATE":
+          return "DATE";
+        case "TIMESTAMP":
+        case "JAVA.SQL.TIMESTAMP":
+          return "TIMESTAMP";
+      }
+    }
+
+    // Fall back to JDBC type mapping
+    if (jdbcType != null) {
+      switch (jdbcType) {
+        case Types.BIGINT:
+          return "BIGINT";
+        case Types.INTEGER:
+          return "INTEGER";
+        case Types.SMALLINT:
+          return "SMALLINT";
+        case Types.TINYINT:
+          return "TINYINT";
+        case Types.DOUBLE:
+          return "DOUBLE";
+        case Types.REAL:
+          return "REAL";
+        case Types.DECIMAL:
+        case Types.NUMERIC:
+          if (columnSize != null && decimalDigits != null && decimalDigits > 0) {
+            return "DECIMAL(" + columnSize + "," + decimalDigits + ")";
+          }
+          return "DECIMAL";
+        case Types.VARCHAR:
+          return s;
+        case Types.CHAR:
+          return columnSize != null && columnSize > 0 ? "CHAR(" + columnSize + ")" : "CHAR(1)";
+        case Types.CLOB:
+          return "CLOB";
+        case Types.BLOB:
+          return "BLOB";
+        case Types.BOOLEAN:
+          return "BOOLEAN";
+        case Types.DATE:
+          return "DATE";
+        case Types.TIME:
+          return "TIME";
+        case Types.TIMESTAMP:
+          return "TIMESTAMP";
+      }
+    }
+
+    return "VARCHAR(255)"; // Default fallback
+  }
+
 
   public enum ErrorMode {
     /**
@@ -108,6 +301,63 @@ public final class JdbcMetaData implements DatabaseMetaData {
     this("", "");
     for (String[] tableDefinition : schemaDefinition) {
       addTable(tableDefinition[0], Arrays.copyOfRange(tableDefinition, 1, tableDefinition.length));
+    }
+  }
+
+
+  /**
+   * Instantiates a new JDBC MetaData object from the starlake schema api. Empty CURRENT_CATALOG and
+   * empty CURRENT_SCHEMA.
+   *
+   * @param schemas the schemas
+   */
+  public JdbcMetaData(Collection<DBSchema> schemas) {
+    this("", "");
+    for (DBSchema schema : schemas) {
+      JdbcCatalog jdbcCatalog = get(schema.getCatalogName());
+      if (jdbcCatalog == null) {
+        jdbcCatalog = new JdbcCatalog(schema.getCatalogName(), ".");
+        put(jdbcCatalog);
+      }
+
+      JdbcSchema jdbcSchema = jdbcCatalog.get(schema.getSchemaName());
+      if (jdbcSchema == null) {
+        jdbcSchema = new JdbcSchema(schema.getSchemaName(), schema.getCatalogName());
+        jdbcCatalog.put(jdbcSchema);
+      }
+
+      for (Map.Entry<String, Collection<Attribute>> entry : schema.getTables().entrySet()) {
+        JdbcTable jdbcTable = new JdbcTable(jdbcCatalog, jdbcSchema, entry.getKey());
+        jdbcSchema.put(jdbcTable);
+
+        for (Attribute attribute : entry.getValue()) {
+          int dataType = Types.OTHER;
+          String typeName = attribute.getType();
+
+          if (attribute.isNestedField()) {
+            dataType = Types.STRUCT;
+            StringBuilder builder = new StringBuilder("STRUCT( ");
+            int i = 0;
+            for (Attribute a : attribute.getAttributes()) {
+              if (i++ > 0) {
+                builder.append(", ");
+              }
+              builder.append(
+                  TypeMappingSystem.generateColumnDefinition(a.getName(), a.getType(), "duckdb"));
+            }
+            builder.append(")");
+            typeName = builder.toString();
+
+          } else if (attribute.isArray()) {
+            dataType = Types.ARRAY;
+            typeName = attribute.getType() + "[]";
+          }
+
+          JdbcColumn jdbcColumn = new JdbcColumn(schema.getCatalogName(), schema.getSchemaName(),
+              entry.getKey(), attribute.getName(), dataType, typeName, 0, 0, 0, "", null);
+          jdbcTable.put(jdbcColumn.columnName, jdbcColumn);
+        }
+      }
     }
   }
 
@@ -161,14 +411,14 @@ public final class JdbcMetaData implements DatabaseMetaData {
   /**
    * Derives JDBC MetaData object from a physical database connection.
    *
-   * @param con the physical database connection
+   * @param conn the physical database connection
    * @throws SQLException when the database fails to return CURRENT_CATALOG or CURRENT_SCHEMA
    */
-  public JdbcMetaData(Connection con) throws SQLException {
-    DatabaseMetaData metaData = con.getMetaData();
+  public JdbcMetaData(Connection conn) throws SQLException {
+    DatabaseMetaData metaData = conn.getMetaData();
     this.databaseType = JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName());
 
-    try (Statement statement = con.createStatement();
+    try (Statement statement = conn.createStatement();
         ResultSet rs = statement.executeQuery(this.databaseType.getCurrentSchemaQuery())) {
       if (rs.next()) {
         currentCatalogName = JdbcUtils.getStringSafe(rs, 1, "");
@@ -181,22 +431,115 @@ public final class JdbcMetaData implements DatabaseMetaData {
       currentSchemaName = "";
     }
 
-    for (JdbcCatalog jdbcCatalog : JdbcCatalog.getCatalogs(metaData)) {
-      put(jdbcCatalog);
-    }
-
-    for (JdbcSchema jdbcSchema : JdbcSchema.getSchemas(metaData)) {
-      put(jdbcSchema);
-    }
-
-    for (JdbcTable jdbcTable : JdbcTable.getTables(metaData, this.currentCatalogName,
-        this.currentSchemaName)) {
-      put(jdbcTable);
-      jdbcTable.getColumns(metaData);
-      if (jdbcTable.tableType.contains("TABLE")) {
-        jdbcTable.getIndices(metaData, true);
-        jdbcTable.getPrimaryKey(metaData);
+    try {
+      for (JdbcCatalog jdbcCatalog : JdbcCatalog.getCatalogsFromInformationSchema(conn)) {
+        put(jdbcCatalog);
       }
+    } catch (SQLException ex) {
+      LOGGER.warning("Failed get Catalogs from INFORMATION_SCHEMA, use DatabaseMetaData now.");
+      for (JdbcCatalog jdbcCatalog : JdbcCatalog.getCatalogs(metaData)) {
+        put(jdbcCatalog);
+      }
+    }
+
+    try {
+      for (JdbcSchema jdbcSchema : JdbcSchema.getSchemasFromInformationSchema(conn)) {
+        put(jdbcSchema);
+      }
+    } catch (SQLException ex) {
+      LOGGER.warning("Failed get Schemas from INFORMATION_SCHEMA, use DatabaseMetaData now.");
+      for (JdbcSchema jdbcSchema : JdbcSchema.getSchemas(metaData)) {
+        put(jdbcSchema);
+      }
+    }
+
+    for (JdbcTable jdbcTable : JdbcTable.getTables(metaData, null, null)) {
+      String tableCatalog = jdbcTable.tableCatalog;
+      String tableSchema = jdbcTable.tableSchema;
+      JdbcCatalog catalog = catalogs.get(tableCatalog);
+      if (catalog != null) {
+        JdbcSchema schema = catalog.get(tableSchema);
+        if (schema != null) {
+          schema.put(jdbcTable);
+        }
+      }
+    }
+
+    for (JdbcColumn column : JdbcTable.getColumns(metaData)) {
+      String tableCatalog = column.tableCatalog;
+      String tableSchema = column.tableSchema;
+      String tableName = column.tableName;
+
+      JdbcCatalog catalog = catalogs.get(tableCatalog);
+      if (catalog != null) {
+        JdbcSchema schema = catalog.get(tableSchema);
+        if (schema != null) {
+          JdbcTable table = schema.get(tableName);
+          if (table != null) {
+            table.columns.put(column.columnName, column);
+          }
+        }
+      }
+    }
+  }
+
+  public void updateTable(Connection conn, Table t) throws SQLException {
+    DatabaseMetaData metaData = conn.getMetaData();
+    this.databaseType = JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName());
+
+    String catalogName = t.getUnquotedCatalogName();
+    if (catalogName == null || catalogName.isEmpty()) {
+      catalogName = currentCatalogName;
+    }
+    if (!catalogs.containsKey(catalogName)) {
+      catalogs.put(catalogName, new JdbcCatalog(catalogName, "."));
+    }
+    JdbcCatalog jdbcCatalog = catalogs.get(catalogName.toUpperCase());
+
+    String schemaName = t.getUnquotedSchemaName();
+    if (schemaName == null || schemaName.isEmpty()) {
+      schemaName = currentSchemaName;
+    }
+    if (!jdbcCatalog.containsKey(schemaName)) {
+      jdbcCatalog.put(new JdbcSchema(schemaName, catalogName));
+    }
+    JdbcSchema schema = jdbcCatalog.get(schemaName.toUpperCase());
+
+    for (JdbcTable jdbcTable : JdbcTable.getTables(metaData, null, null,
+        t.getUnquotedName().toUpperCase())) {
+      schema.put(jdbcTable);
+
+      // the table name is a literal name here, so escape any SQL wildcard characters it may
+      // contain (needed e.g. for OracleDB)
+      for (JdbcColumn column : JdbcTable.getColumns(metaData, jdbcTable.tableCatalog,
+          jdbcTable.tableSchema, JdbcUtils.escapeSQLWildcardChars(jdbcTable.tableName,
+              metaData.getSearchStringEscape()))) {
+        jdbcTable.columns.put(column.columnName, column);
+      }
+    }
+  }
+
+  public void dropTable(Table t) throws SQLException {
+    String catalogName = t.getUnquotedCatalogName();
+    if (catalogName == null || catalogName.isEmpty()) {
+      catalogName = currentCatalogName;
+    }
+    if (!catalogs.containsKey(catalogName)) {
+      catalogs.put(catalogName, new JdbcCatalog(catalogName, "."));
+    }
+    JdbcCatalog jdbcCatalog = catalogs.get(catalogName.toUpperCase());
+
+    String schemaName = t.getUnquotedSchemaName();
+    if (schemaName == null || schemaName.isEmpty()) {
+      schemaName = currentSchemaName;
+    }
+    if (!jdbcCatalog.containsKey(schemaName)) {
+      jdbcCatalog.put(new JdbcSchema(schemaName, catalogName));
+    }
+    JdbcSchema schema = jdbcCatalog.get(schemaName.toUpperCase());
+
+    if (schema.containsKey(t.getFullyQualifiedName())) {
+      schema.remove(t.getFullyQualifiedName());
     }
   }
 
@@ -237,10 +580,12 @@ public final class JdbcMetaData implements DatabaseMetaData {
       JdbcTable t = new JdbcTable(currentCatalogName, currentSchemaName, name);
       int columnCount = rsMetaData.getColumnCount();
       for (int i = 1; i <= columnCount; i++) {
-        JdbcColumn col = t.add(t.tableCatalog, t.tableSchema, t.tableName,
+        String finalColumnName =
             rsMetaData.getColumnLabel(i) != null && !rsMetaData.getColumnLabel(i).isEmpty()
                 ? rsMetaData.getColumnLabel(i)
-                : rsMetaData.getColumnName(i),
+                : rsMetaData.getColumnName(i);
+
+        JdbcColumn col = t.add(t.tableCatalog, t.tableSchema, t.tableName, finalColumnName,
             rsMetaData.getColumnType(i), rsMetaData.getColumnClassName(i),
             rsMetaData.getPrecision(i), rsMetaData.getScale(i), 10, rsMetaData.isNullable(i), "",
             "", rsMetaData.getColumnDisplaySize(i), i, "",
@@ -308,8 +653,8 @@ public final class JdbcMetaData implements DatabaseMetaData {
       } else {
         // @todo: implement a GLOB based column name filter
         for (JdbcColumn column : jdbcTable.columns.values()) {
-          column.tableCatalog = jdbcCatalog.tableCatalog;
-          column.tableSchema = jdbcSchema.tableSchema;
+          // column.tableCatalog = jdbcCatalog.tableCatalog;
+          // column.tableSchema = jdbcSchema.tableSchema;
           column.tableName = jdbcTable.tableName;
 
           if (column.scopeCatalog == null || column.scopeCatalog.isEmpty()) {
@@ -361,30 +706,55 @@ public final class JdbcMetaData implements DatabaseMetaData {
     JdbcCatalog jdbcCatalog = catalogs
         .get(catalogName == null || catalogName.isEmpty() ? currentCatalogName : catalogName);
     if (jdbcCatalog == null) {
-      LOGGER.info(
-          "Available catalogues: " + Arrays.deepToString(catalogs.keySet().toArray(new String[0])));
-      throw new RuntimeException(
-          "Catalog " + catalogName + " does not exist in the DatabaseMetaData.");
+      switch (errorMode) {
+        case STRICT:
+          throw new CatalogNotFoundException(catalogName);
+        case LENIENT:
+          LOGGER.warning("Available catalogues: "
+              + Arrays.deepToString(catalogs.keySet().toArray(new String[0])));
+          break;
+        case IGNORE:
+          LOGGER.fine("Available catalogues: "
+              + Arrays.deepToString(catalogs.keySet().toArray(new String[0])));
+          break;
+      }
     }
 
     JdbcSchema jdbcSchema =
         jdbcCatalog.get(schemaName == null || schemaName.isEmpty() ? currentSchemaName
             : schemaName.replaceAll("^\"|\"$", ""));
     if (jdbcSchema == null) {
-      LOGGER.info("Available schema: "
-          + Arrays.deepToString(jdbcCatalog.schemas.keySet().toArray(new String[0])));
-      throw new RuntimeException(
-          "Schema " + schemaName + " does not exist in the given Catalog " + catalogName);
+      switch (errorMode) {
+        case STRICT:
+          throw new SchemaNotFoundException(schemaName);
+        case LENIENT:
+          LOGGER.warning("Available schema: "
+              + Arrays.deepToString(jdbcCatalog.schemas.keySet().toArray(new String[0])));
+          break;
+        case IGNORE:
+          LOGGER.fine("Available schema: "
+              + Arrays.deepToString(jdbcCatalog.schemas.keySet().toArray(new String[0])));
+          break;
+      }
     }
 
     if (tableName != null && !tableName.isEmpty()) {
       JdbcTable jdbcTable = jdbcSchema.get(tableName.replaceAll("^\"|\"$", ""));
 
       if (jdbcTable == null) {
-        LOGGER.info("Available tables: "
-            + Arrays.deepToString(jdbcSchema.tables.keySet().toArray(new String[0])));
-        // throw new RuntimeException(
-        // "Table " + tableName + " does not exist in the given Schema " + schemaName);
+        switch (errorMode) {
+          case STRICT:
+            throw new TableNotFoundException(tableName, jdbcSchema.tables.keySet());
+          case LENIENT:
+            LOGGER.warning("Available tables: "
+                + Arrays.deepToString(jdbcSchema.tables.keySet().toArray(new String[0])));
+            break;
+          case IGNORE:
+            LOGGER.finer("Available tables: "
+                + Arrays.deepToString(jdbcSchema.tables.keySet().toArray(new String[0])));
+            break;
+        }
+
       } else {
         jdbcColumn = jdbcTable.columns.get(columnName.replaceAll("^\"|\"$", ""));
       }
@@ -1492,6 +1862,11 @@ public final class JdbcMetaData implements DatabaseMetaData {
     return fromTables;
   }
 
+  /** The tables of the enclosing queries; empty unless this is a correlated sub query. */
+  public CaseInsensitiveLinkedHashMap<Table> getOuterFromTables() {
+    return outerFromTables;
+  }
+
   public JdbcMetaData addFromTables(Collection<Table> fromTables) {
     for (Table t : fromTables) {
       this.fromTables.put(t.getName(), t);
@@ -1542,6 +1917,9 @@ public final class JdbcMetaData implements DatabaseMetaData {
     JdbcMetaData metaData1 =
         new JdbcMetaData(metaData.currentCatalogName, metaData.currentSchemaName);
     metaData1.getFromTables().putAll(fromTables);
+    // The enclosing scope travels with the copy; only the query's own tables are
+    // decided per copy.
+    metaData1.outerFromTables.putAll(metaData.outerFromTables);
 
     for (JdbcCatalog catalog : metaData.catalogs.values()) {
       JdbcCatalog catalog1 = new JdbcCatalog(catalog.tableCatalog, metaData.catalogSeparator);
@@ -1552,6 +1930,9 @@ public final class JdbcMetaData implements DatabaseMetaData {
           // @todo: add indices and reference
           schema1.put(table1);
         }
+        schema1.synonyms.putAll(schema.synonyms);
+        schema1.droppedTables.putAll(schema.droppedTables);
+
         catalog1.put(schema1);
       }
       metaData1.put(catalog1);
@@ -1564,6 +1945,21 @@ public final class JdbcMetaData implements DatabaseMetaData {
 
   public static JdbcMetaData copyOf(JdbcMetaData metaData) {
     return copyOf(metaData, new CaseInsensitiveLinkedHashMap<Table>());
+  }
+
+  /**
+   * The scope for a sub query that appears in an expression - {@code EXISTS}, {@code IN}, a scalar
+   * select, {@code HAVING}. Its own FROM clause starts empty, and the tables of the enclosing query
+   * become the outer scope that a correlated reference resolves against.
+   */
+  public static JdbcMetaData copyOfNested(JdbcMetaData outer) {
+    JdbcMetaData nested = copyOf(outer);
+    nested.outerFromTables.putAll(outer.fromTables);
+    return nested;
+  }
+
+  public JdbcMetaData copyOf() {
+    return copyOf(this);
   }
 
   private static JdbcTable getJdbcTable(JdbcTable table) {
@@ -1660,4 +2056,159 @@ public final class JdbcMetaData implements DatabaseMetaData {
     this.currentSchemaName = currentSchemaName;
   }
 
+  public boolean hasTable(String catalogName, String schemaName, String tableName) {
+    final JdbcCatalog jdbcCatalog = catalogs.get(catalogName);
+    if (jdbcCatalog != null) {
+      final JdbcSchema jdbcSchema = jdbcCatalog.get(schemaName);
+      if (jdbcSchema != null) {
+        return jdbcSchema.containsKey(tableName);
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  public boolean hasTable(Table t) {
+    final JdbcCatalog jdbcCatalog =
+        catalogs.getOrDefault(t.getUnquotedCatalogName(), catalogs.get(currentCatalogName));
+    if (jdbcCatalog != null) {
+      final JdbcSchema jdbcSchema =
+          jdbcCatalog.getOrDefault(t.getUnquotedSchemaName(), jdbcCatalog.get(currentSchemaName));
+      if (jdbcSchema != null) {
+        return jdbcSchema.containsKey(t.getUnquotedName());
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  public JdbcTable getTable(String catalogName, String schemaName, String tableName) {
+    final JdbcCatalog jdbcCatalog =
+        catalogs.getOrDefault(catalogName, catalogs.get(currentCatalogName));
+    if (jdbcCatalog != null) {
+      final JdbcSchema jdbcSchema =
+          jdbcCatalog.getOrDefault(schemaName, jdbcCatalog.get(currentSchemaName));
+      if (jdbcSchema != null) {
+        return jdbcSchema.get(tableName);
+      } else {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  public JdbcTable getTable(Table t) {
+    Table fullyQualifiedTable = new Table(t.getFullyQualifiedName())
+        .setUnsetCatalogAndSchema(currentCatalogName, currentSchemaName);
+
+    final JdbcCatalog jdbcCatalog = catalogs.get(fullyQualifiedTable.getUnquotedCatalogName());
+    if (jdbcCatalog != null) {
+      final JdbcSchema jdbcSchema = jdbcCatalog.get(fullyQualifiedTable.getUnquotedSchemaName());
+      if (jdbcSchema != null) {
+        return jdbcSchema.get(fullyQualifiedTable.getUnquotedName());
+      } else {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  public boolean hasTableColumn(String catalogName, String schemaName, String tableName,
+      String columnName) {
+    final JdbcCatalog jdbcCatalog =
+        catalogs.getOrDefault(catalogName, catalogs.get(currentCatalogName));
+    if (jdbcCatalog != null) {
+      final JdbcSchema jdbcSchema =
+          jdbcCatalog.getOrDefault(schemaName, jdbcCatalog.get(currentSchemaName));
+      if (jdbcSchema != null) {
+        JdbcTable jdbcTable = jdbcSchema.get(tableName);
+        if (jdbcTable != null) {
+          return jdbcTable.columns.containsKey(columnName);
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  public void addSynonym(String fromTableName, String toTableName) {
+    if (fromTableName == null || fromTableName.isEmpty()) {
+      throw new RuntimeException("Table name must not be empty!");
+    } else if (toTableName == null || toTableName.isEmpty()) {
+      throw new RuntimeException("Table name must not be empty!");
+    }
+
+    Table fromTable =
+        new Table(fromTableName).setUnsetCatalogAndSchema(currentCatalogName, currentSchemaName);
+    Table toTable =
+        new Table(toTableName).setUnsetCatalogAndSchema(currentCatalogName, currentSchemaName);
+    JdbcTable jdbcTable = getTable(toTable);
+    if (jdbcTable == null) {
+      throw new TableNotFoundException(toTable.getFullyQualifiedName(), List.of());
+    }
+
+    JdbcCatalog fromCatalog = catalogs.get(fromTable.getUnquotedCatalogName());
+    if (fromCatalog != null) {
+      JdbcSchema fromSchema = fromCatalog.get(fromTable.getUnquotedSchemaName());
+      if (fromSchema != null) {
+        fromSchema.synonyms.put(fromTable.getUnquotedName(), jdbcTable);
+      } else {
+        throw new SchemaNotFoundException(fromTable.getUnquotedSchemaName());
+      }
+    } else {
+      throw new CatalogNotFoundException(fromTable.getUnquotedCatalogName());
+    }
+  }
+
+  public void dropSynonym(String fromTableName, String toTableName) {
+    if (fromTableName == null || fromTableName.isEmpty()) {
+      throw new RuntimeException("Table name must not be empty!");
+    } else if (toTableName == null || toTableName.isEmpty()) {
+      throw new RuntimeException("Table name must not be empty!");
+    }
+
+    Table fromTable =
+        new Table(fromTableName).setUnsetCatalogAndSchema(currentCatalogName, currentSchemaName);
+    Table toTable =
+        new Table(toTableName).setUnsetCatalogAndSchema(currentCatalogName, currentSchemaName);
+    JdbcTable jdbcTable = getTable(toTable);
+    if (jdbcTable == null) {
+      throw new TableNotFoundException(toTable.getFullyQualifiedName(), List.of());
+    }
+
+    JdbcCatalog fromCatalog = catalogs.get(fromTable.getUnquotedCatalogName());
+    if (fromCatalog != null) {
+      JdbcSchema fromSchema = fromCatalog.get(fromTable.getUnquotedSchemaName());
+      if (fromSchema != null) {
+        fromSchema.synonyms.remove(fromTable.getUnquotedName(), jdbcTable);
+        fromSchema.remove(fromTable.getUnquotedName(), jdbcTable);
+      } else {
+        throw new SchemaNotFoundException(fromTable.getUnquotedSchemaName());
+      }
+    } else {
+      throw new CatalogNotFoundException(fromTable.getUnquotedCatalogName());
+    }
+
+    JdbcCatalog toCatalog = catalogs.get(toTable.getUnquotedCatalogName());
+    if (toCatalog != null) {
+      JdbcSchema toSchema = toCatalog.get(toTable.getUnquotedSchemaName());
+      if (toSchema != null) {
+        toSchema.remove(fromTable.getUnquotedName(), jdbcTable);
+      } else {
+        throw new SchemaNotFoundException(fromTable.getUnquotedSchemaName());
+      }
+    } else {
+      throw new CatalogNotFoundException(fromTable.getUnquotedCatalogName());
+    }
+  }
 }

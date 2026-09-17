@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -34,12 +31,15 @@ import java.util.Objects;
 import java.util.TreeMap;
 
 public class JSQLResultSetHelperService extends ResultSetHelperService {
+
+  public static final String DEFAULT_NULL_VALUE = "JSQL_NULL";
+
   private final String defaultValue;
 
   public TreeMap<Integer, NumberFormat> numberFormatters = null;
 
   public JSQLResultSetHelperService() {
-    this.defaultValue = "JSQL_NULL";
+    this.defaultValue = DEFAULT_NULL_VALUE;
   }
 
   public JSQLResultSetHelperService(String defaultValue) {
@@ -240,12 +240,15 @@ public class JSQLResultSetHelperService extends ResultSetHelperService {
       case Types.CHAR:
         value = handleVarChar(rs, colIndex, trim);
         break;
+      case Types.BLOB:
+      case Types.STRUCT:
+      case Types.ARRAY:
+      case Types.OTHER:
+        value = rs.getString(colIndex);
+        break;
       default:
-        // This takes care of Types.BIT, Types.JAVA_OBJECT, and anything
-        // unknown.
         value = Objects.toString(rs.getObject(colIndex), defaultValue);
     }
-
 
     if (rs.wasNull() || value == null) {
       value = defaultValue;

@@ -106,16 +106,16 @@ LIMIT 10
 
 -- result
 "listid","'2008-06-18'","tstz","compared"
-"1","2008-06-18","2008-01-23T23:43:29Z","1"
-"2","2008-06-18","2008-03-05T05:25:29Z","1"
-"3","2008-06-18","2008-11-01T00:35:33Z","-1"
-"4","2008-06-18","2008-05-23T18:18:37Z","1"
-"5","2008-06-18","2008-05-16T19:29:11Z","1"
-"6","2008-06-18","2008-08-14T19:08:13Z","-1"
-"7","2008-06-18","2008-11-15T02:38:15Z","-1"
-"8","2008-06-18","2008-11-08T22:07:30Z","-1"
-"9","2008-06-18","2008-09-09T01:03:36Z","-1"
-"10","2008-06-18","2008-06-17T02:44:54Z","1"
+"1","2008-06-18","2008-01-24T06:43:29+07:00","1"
+"2","2008-06-18","2008-03-05T12:25:29+07:00","1"
+"3","2008-06-18","2008-11-01T07:35:33+07:00","-1"
+"4","2008-06-18","2008-05-24T01:18:37+07:00","1"
+"5","2008-06-18","2008-05-17T02:29:11+07:00","1"
+"6","2008-06-18","2008-08-15T02:08:13+07:00","-1"
+"7","2008-06-18","2008-11-15T09:38:15+07:00","-1"
+"8","2008-06-18","2008-11-09T05:07:30+07:00","-1"
+"9","2008-06-18","2008-09-09T08:03:36+07:00","-1"
+"10","2008-06-18","2008-06-17T09:44:54+07:00","1"
 
 
 -- provided
@@ -126,7 +126,7 @@ order by dateid;
 
 
 -- expected
-select date_add(caldate,  (30 ||' day')::INTERVAL) as novplus30
+select date_add(caldate,  (30 ||' DAY')::INTERVAL) as novplus30
 from date
 where month='NOV'
 order by dateid;
@@ -180,7 +180,7 @@ select datediff('week',DATE '2009-01-01', DATE '2009-12-31') as numweeks;
 select datediff(hour, '2023-01-01', '2023-01-03 05:04:03') AS diff;
 
 -- expected
-select datediff('hour', DATE '2023-01-01',  TIMESTAMP WITHOUT TIME ZONE '2023-01-03T05:04:03.000') AS diff;
+select datediff('HOUR', DATE '2023-01-01',  TIMESTAMP WITHOUT TIME ZONE '2023-01-03T05:04:03.000') AS diff;
 
 -- result
 "diff"
@@ -191,7 +191,7 @@ select datediff('hour', DATE '2023-01-01',  TIMESTAMP WITHOUT TIME ZONE '2023-01
 SELECT DATE_PART(minute, timestamp '20230104 04:05:06.789') AS part;
 
 -- expected
-SELECT DATE_PART('minute', timestamp '2023-01-04T04:05:06.789') AS part;
+SELECT DATE_PART('MINUTE', timestamp '2023-01-04T04:05:06.789') AS part;
 
 -- result
 "part"
@@ -202,7 +202,7 @@ SELECT DATE_PART('minute', timestamp '2023-01-04T04:05:06.789') AS part;
 SELECT DATE_PART(minute, timestamp '20230104 04:05:06.789+0700') AS part;
 
 -- expected
-SELECT DATE_PART('minute', timestamp with time zone '2023-01-03T21:05:06.789+0000') AS part;
+SELECT DATE_PART('MINUTE', timestamp with time zone '2023-01-03T21:05:06.789+0000') AS part;
 
 -- result
 "part"
@@ -212,7 +212,7 @@ SELECT DATE_PART('minute', timestamp with time zone '2023-01-03T21:05:06.789+000
 SELECT DATE_PART(minute, DATE '20230104 04:05:06.789+0700') AS part;
 
 -- expected
-SELECT DATE_PART('minute', timestamp with time zone '2023-01-03T21:05:06.789+0000'::DATE) AS part;
+SELECT DATE_PART('MINUTE', timestamp with time zone '2023-01-03T21:05:06.789+0000'::DATE) AS part;
 
 -- result
 "part"
@@ -237,7 +237,7 @@ select date_trunc('week', TIMESTAMP '2022-04-30T04:05:06.789') AS truncated;
 
 -- result
 "truncated"
-"2022-04-25"
+"2022-04-25 00:00:00.0"
 
 
 -- provided
@@ -284,9 +284,9 @@ group by 1
 order by 1;
 
 -- expected
-select datediff('day', saletime, last_day(saletime)) as "Days Remaining", sum(qtysold) AS tally
+select datediff('DAY', saletime, last_day(saletime)) as "Days Remaining", sum(qtysold) AS tally
 from sales
-where datediff('day', saletime, last_day(saletime)) < 7
+where datediff('DAY', saletime, last_day(saletime)) < 7
 group by 1
 order by 1;
 
@@ -504,16 +504,16 @@ LIMIT 10
 
 -- result
 "listid","tstz","cmp"
-"1","2008-01-23T23:43:29Z","-1"
-"2","2008-03-05T05:25:29Z","-1"
-"3","2008-11-01T00:35:33Z","1"
-"4","2008-05-23T18:18:37Z","-1"
-"5","2008-05-16T19:29:11Z","-1"
-"6","2008-08-14T19:08:13Z","1"
-"7","2008-11-15T02:38:15Z","1"
-"8","2008-11-08T22:07:30Z","1"
-"9","2008-09-09T01:03:36Z","1"
-"10","2008-06-17T02:44:54Z","-1"
+"1","2008-01-24T06:43:29+07:00","-1"
+"2","2008-03-05T12:25:29+07:00","-1"
+"3","2008-11-01T07:35:33+07:00","1"
+"4","2008-05-24T01:18:37+07:00","-1"
+"5","2008-05-17T02:29:11+07:00","-1"
+"6","2008-08-15T02:08:13+07:00","1"
+"7","2008-11-15T09:38:15+07:00","1"
+"8","2008-11-09T05:07:30+07:00","1"
+"9","2008-09-09T08:03:36+07:00","1"
+"10","2008-06-17T09:44:54+07:00","-1"
 
 
 
@@ -559,7 +559,7 @@ SELECT TIMESTAMP WITHOUT TIME ZONE '2008-06-17T09:44:54.000' AT TIME ZONE 'PST' 
 
 -- result
 "tstz"
-"2008-06-17T16:44:54Z"
+"2008-06-17T23:44:54+07:00"
 
 
 -- provided
@@ -581,7 +581,7 @@ SELECT strptime('2017', '%Y')::TIMESTAMP AT TIME ZONE 'UTC' AS tstz;
 
 -- result
 "tstz"
-"2017-01-01T00:00Z"
+"2017-01-01T07:00+07:00"
 
 
 -- provided
@@ -592,5 +592,5 @@ SELECT STRPTIME('2011-12-18 23:38:15','%Y-%m-%d %H:%M:%S')::TIMESTAMP AT TIME ZO
 
 -- result
 "tstz"
-"2011-12-18T23:38:15Z"
+"2011-12-19T06:38:15+07:00"
 

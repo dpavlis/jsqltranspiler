@@ -61,7 +61,7 @@ select MAKE_TIMESTAMP(2013, 4, 5, 12, 00, (00 || '.' || 0)::DOUBLE) AT TIME ZONE
 
 -- result
 "tstz"
-"2013-04-05T19:00Z"
+"2013-04-06T02:00+07:00"
 
 -- provided
 SELECT DATE_PART(QUARTER, '2013-05-08'::DATE)  AS part;
@@ -110,7 +110,7 @@ SELECT '2013-05-08T23:39:20.123-07:00'::TIMESTAMPTZ AS TSTAMP,
 
 -- result
 "TSTAMP","HOUR","MINUTE","SECOND"
-"2013-05-09T06:39:20.123Z","13","39","20"
+"2013-05-09T13:39:20.123+07:00","13","39","20"
 
 
 -- provided
@@ -159,7 +159,7 @@ SELECT
 
 -- result
 "tstamp","YEAR","QUARTER OF YEAR","MONTH","DAY","DAY OF MONTH","DAY OF YEAR"
-"2013-05-09T06:39:20.123Z","2013","2","5","9","9","129"
+"2013-05-09T13:39:20.123+07:00","2013","2","5","9","9","129"
 
 
 -- provided
@@ -177,7 +177,7 @@ SELECT DATE_ADD('2016-05-15'::TIMESTAMP,(2||' MONTH')::INTERVAL)AS RESULT;
 SELECT TO_DATE('2013-05-08') AS v1, DATEADD(year, 2, TO_DATE('2013-05-08')) AS v;
 
 -- expected
-SELECT '2013-05-08'::DATE AS v1, DATE_ADD('2013-05-08'::DATE, (  2 || 'year' )::INTERVAL ) AS v;
+SELECT '2013-05-08'::DATE AS v1, DATE_ADD('2013-05-08'::DATE, (  2 || 'YEAR' )::INTERVAL ) AS v;
 
 -- result
 "v1","v"
@@ -190,7 +190,7 @@ SELECT DATEDIFF(year, '2010-04-09 14:39:20'::TIMESTAMP,
                AS diff_years;
 
 -- expected
-SELECT DATEDIFF('year','2010-04-09T14:39:20.000'::TIMESTAMP,'2013-05-08T23:39:20.000'::TIMESTAMP)AS DIFF_YEARS;
+SELECT DATEDIFF('YEAR','2010-04-09T14:39:20.000'::TIMESTAMP,'2013-05-08T23:39:20.000'::TIMESTAMP)AS DIFF_YEARS;
 
 -- result
 "diff_years"
@@ -212,9 +212,9 @@ SELECT column1 date_1, column2 date_2,
 -- expected
 SELECT  column1 date_1
         , column2 date_2
-        , Datediff( 'year', column1, column2 ) diff_years
-        , Datediff( 'month', column1, column2 ) diff_months
-        , Datediff( 'day', column1, column2 ) diff_days
+        , Datediff( 'YEAR', column1, column2 ) diff_years
+        , Datediff( 'MONTH', column1, column2 ) diff_months
+        , Datediff( 'DAY', column1, column2 ) diff_days
         , column2::DATE - column1::DATE AS diff_days_via_minus
 FROM (  SELECT Unnest(  [
                     { COLUMN1:DATE '2015-12-30',COLUMN2:DATE '2015-12-31' }
@@ -312,7 +312,7 @@ select date_trunc('MONTH', '2013-05-08'::DATE) AS month;
 
 -- result
 "month"
-"2013-05-01"
+"2013-05-01 00:00:00.0"
 
 
 -- provided

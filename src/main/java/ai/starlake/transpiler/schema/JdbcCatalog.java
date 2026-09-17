@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,9 +13,11 @@
  */
 package ai.starlake.transpiler.schema;
 
+import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -44,6 +43,28 @@ public class JdbcCatalog implements Comparable<JdbcCatalog> {
   }
 
   public JdbcCatalog() {}
+
+  public static Collection<JdbcCatalog> getCatalogsFromInformationSchema(Connection conn)
+      throws SQLException {
+    ArrayList<JdbcCatalog> jdbcCatalogs = new ArrayList<>();
+
+    String sqlStr =
+        String.format("SELECT * FROM %s.information_schema.databases", conn.getCatalog());
+    try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sqlStr)) {
+      String catalogSeparator = ".";
+      while (rs.next()) {
+        String tableCatalog = JdbcUtils.getStringSafe(rs, "DATABASE_NAME");
+        if (tableCatalog != null && !tableCatalog.isEmpty()) {
+          JdbcCatalog jdbcCatalog = new JdbcCatalog(tableCatalog, catalogSeparator);
+          jdbcCatalogs.add(jdbcCatalog);
+        }
+      }
+      // add <empty> catalog as some DBs don't have the concept of catalog for tables
+      jdbcCatalogs.add(new JdbcCatalog("", "."));
+
+    }
+    return jdbcCatalogs;
+  }
 
   public static Collection<JdbcCatalog> getCatalogs(DatabaseMetaData metaData) throws SQLException {
     ArrayList<JdbcCatalog> jdbcCatalogs = new ArrayList<>();

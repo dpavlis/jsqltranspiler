@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,6 +16,8 @@ package ai.starlake.transpiler.schema;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.schema.Column;
+import net.sf.jsqlparser.schema.Table;
+
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -160,6 +159,15 @@ public class JdbcColumn implements Comparable<JdbcColumn> {
     this(columnName, new Column(columnName));
   }
 
+  public JdbcColumn(String tableName, String columnName, Expression expression) {
+    this("", "", tableName, columnName, Types.OTHER, "Other", 0, 0, 10, columnNullableUnknown, "", "", 0,
+         0, "", "", "", "", "", (short) 0, "", "", expression);
+  }
+
+  public JdbcColumn(String tableName, String columnName) {
+    this(tableName, columnName, new Column(new Table(tableName), columnName));
+  }
+
   @Override
   @SuppressWarnings({"PMD.CyclomaticComplexity"})
   public final boolean equals(Object o) {
@@ -205,7 +213,7 @@ public class JdbcColumn implements Comparable<JdbcColumn> {
   public String toString() {
     if (expression instanceof Function) {
       Function f = (Function) expression;
-      return "Function: " + f.toString();
+      return "Function: " + f;
     } else if (expression instanceof Column) {
 
       StringBuilder b = new StringBuilder();
@@ -239,8 +247,10 @@ public class JdbcColumn implements Comparable<JdbcColumn> {
       }
 
       return b.toString();
+    } else if (expression!=null) {
+      return expression.getClass().getSimpleName() + ": " + expression;
     } else {
-      return expression.getClass().getSimpleName() + ": " + expression.toString();
+      return tableName + "." + columnName;
     }
   }
 

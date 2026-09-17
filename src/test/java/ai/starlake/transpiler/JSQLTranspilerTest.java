@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,9 +13,13 @@
  */
 package ai.starlake.transpiler;
 
+import ai.starlake.transpiler.bigquery.BigqueryResultSet;
 import ai.starlake.transpiler.schema.JdbcMetaData;
+import com.google.cloud.bigquery.*;
+import com.opencsv.CSVReader;
 import com.opencsv.CSVWriter;
 import com.opencsv.ResultSetHelperService;
+import com.opencsv.exceptions.CsvException;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.Statements;
@@ -29,19 +30,12 @@ import org.apache.commons.io.IOUtils;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.FilenameFilter;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.StringWriter;
+import java.io.*;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.Charset;
@@ -56,23 +50,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.text.DecimalFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Properties;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 @SuppressWarnings({"PMD.CyclomaticComplexity"})
@@ -100,7 +85,8 @@ public class JSQLTranspilerTest {
     @Override
     public boolean accept(File dir, String name) {
       String filename = name.toLowerCase().trim();
-      return filename.endsWith(".sql") && !filename.contains("disabled");
+      return filename.endsWith(".sql") && !filename.contains("disabled")
+          && !filename.contains("debug");
     }
   };
 
@@ -118,13 +104,13 @@ public class JSQLTranspilerTest {
 
     public String expectedResult = null;
 
-    public Map<String, Object> parameters = new HashMap<>();
+    public Map<String, Object> parameters;
 
     SQLTest(JSQLTranspiler.Dialect inputDialect, JSQLTranspiler.Dialect outputDialect,
         Map<String, Object> parameters) {
       this.inputDialect = inputDialect;
       this.outputDialect = outputDialect;
-      this.parameters.putAll(parameters);
+      this.parameters = parameters;
     }
 
     @Override
@@ -133,12 +119,24 @@ public class JSQLTranspilerTest {
     }
   }
 
+  protected static Stream<Arguments> getInputQueries(File inputFile,
+      FilenameFilter filenameFilter) {
+    return Arrays.stream(Objects.requireNonNull(inputFile.listFiles(filenameFilter)))
+        .flatMap(sqlFile -> {
+          try {
+            return Stream.generate(new InputQuerySupplier(sqlFile)).takeWhile(Objects::nonNull);
+          } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+          }
+        });
+  }
+
   static Stream<Arguments> getSqlTestMap() {
     return unrollParameterMap(getSqlTestMap(new File(TEST_FOLDER_STR).listFiles(FILENAME_FILTER),
         JSQLTranspiler.Dialect.ANY, JSQLTranspiler.Dialect.DUCK_DB));
   }
 
-  protected static Stream<Arguments> unrollParameterMap(Map<File, List<SQLTest>> map) {
+  protected static synchronized Stream<Arguments> unrollParameterMap(Map<File, List<SQLTest>> map) {
     Set<Map.Entry<File, List<SQLTest>>> entries = map.entrySet();
 
     ArrayList<Object[]> data = new ArrayList<>();
@@ -154,7 +152,7 @@ public class JSQLTranspilerTest {
   }
 
   @SuppressWarnings({"PMD.CyclomaticComplexity"})
-  protected static Map<File, List<SQLTest>> getSqlTestMap(File[] testFiles,
+  protected static synchronized Map<File, List<SQLTest>> getSqlTestMap(File[] testFiles,
       JSQLTranspiler.Dialect inputDialect, JSQLTranspiler.Dialect outputDialect) {
     LinkedHashMap<File, List<SQLTest>> sqlMap = new LinkedHashMap<>();
 
@@ -178,7 +176,13 @@ public class JSQLTranspilerTest {
                 ? JSQLExpressionTranspiler.GeoMode.GEOGRAPHY
                 : JSQLExpressionTranspiler.GeoMode.GEOMETRY;
 
-        SQLTest test = new SQLTest(inputDialect, outputDialect, Map.of("GEO_MODE", geoMode.name()));
+        JSQLExpressionTranspiler.VariantMode variantMode =
+            file.getName().toLowerCase().contains("variant")
+                ? JSQLExpressionTranspiler.VariantMode.VARIANT
+                : JSQLExpressionTranspiler.VariantMode.JSON;
+
+        SQLTest test = new SQLTest(inputDialect, outputDialect,
+            Map.of("GEO_MODE", geoMode, "VARIANT_MODE", variantMode));
         int r = 0;
         while ((line = bufferedReader.readLine()) != null) {
           r++;
@@ -225,7 +229,12 @@ public class JSQLTranspilerTest {
                     ? JSQLExpressionTranspiler.GeoMode.GEOGRAPHY
                     : JSQLExpressionTranspiler.GeoMode.GEOMETRY;
 
-                test = new SQLTest(inputDialect, outputDialect, Map.of("GEO_MODE", geoMode.name()));
+                variantMode = file.getName().toLowerCase().contains("variant")
+                    ? JSQLExpressionTranspiler.VariantMode.VARIANT
+                    : JSQLExpressionTranspiler.VariantMode.JSON;
+
+                test = new SQLTest(inputDialect, outputDialect,
+                    Map.of("GEO_MODE", geoMode, "VARIANT_MODE", variantMode));
                 test.line = r;
               }
 
@@ -287,6 +296,12 @@ public class JSQLTranspilerTest {
     info.put("default_null_order", "NULLS FIRST");
     info.put("default_order", "ASC");
     info.put("memory_limit", "250M");
+    // VARIANT columns need storage version v1.5.0, new databases default to v1.0.0
+    info.put("storage_compatibility_version", "v1.5.0");
+    // DuckDB 1.5+ JDBC driver uses JVM timezone for TIMESTAMPTZ formatting
+    // instead of the DuckDB session timezone. Set JVM timezone to match.
+    TimeZone.setDefault(TimeZone.getTimeZone("Asia/Bangkok"));
+
     connDuck = DriverManager.getConnection("jdbc:duckdb:" + fileDuckDB.getAbsolutePath(), info);
 
     if (!isInitialised) {
@@ -421,12 +436,39 @@ public class JSQLTranspilerTest {
 
           // @todo: find a better way to map the file names to the actual table names
           String tableName = FilenameUtils.getBaseName(url1.getFile());
-          String copyCommand = "COPY " + tableName + " FROM '" + outputFile.getAbsolutePath()
-              + "' (FORMAT CSV, AUTO_DETECT true, TIMESTAMPFORMAT '%m/%d/%Y %I:%M:%S', IGNORE_ERRORS true);";
+
+          // Find GEOMETRY columns in the target table
+          List<String> geomCols = new ArrayList<>();
+          try (Statement st = connDuck.createStatement();
+              ResultSet cols = st.executeQuery(
+                  "SELECT column_name FROM information_schema.columns WHERE table_name = '"
+                      + tableName + "' AND data_type = 'GEOMETRY'")) {
+            while (cols.next()) {
+              geomCols.add(cols.getString(1));
+            }
+          }
 
           try (Statement st = connDuck.createStatement()) {
-            LOGGER.fine("execute: " + copyCommand);
-            st.execute(copyCommand);
+            if (geomCols.isEmpty()) {
+              String copyCommand = "COPY " + tableName + " FROM '" + outputFile.getAbsolutePath()
+                  + "' (FORMAT CSV, AUTO_DETECT true, TIMESTAMPFORMAT '%m/%d/%Y %I:%M:%S', IGNORE_ERRORS true);";
+              LOGGER.fine("execute: " + copyCommand);
+              st.execute(copyCommand);
+            } else {
+              // DuckDB 1.5+ built-in GEOMETRY type does not support implicit
+              // VARCHAR-to-GEOMETRY cast from hex WKB/EWKB strings during COPY.
+              // Read geometry columns as VARCHAR and convert via ST_GeomFromHEXEWKB.
+              String types = geomCols.stream().map(c -> "'" + c + "': 'VARCHAR'")
+                  .collect(Collectors.joining(", "));
+              String replace =
+                  geomCols.stream().map(c -> "ST_GeomFromHEXEWKB(\"" + c + "\") AS \"" + c + "\"")
+                      .collect(Collectors.joining(", "));
+              String insertCommand = "INSERT INTO " + tableName + " BY NAME SELECT * REPLACE ("
+                  + replace + ") FROM read_csv('" + outputFile.getAbsolutePath()
+                  + "', auto_detect=true, types={" + types + "}, ignore_errors=true)";
+              LOGGER.fine("execute: " + insertCommand);
+              st.execute(insertCommand);
+            }
           }
         } catch (IOException | URISyntaxException e) {
           throw new RuntimeException(e);
@@ -446,17 +488,19 @@ public class JSQLTranspilerTest {
   }
 
   @AfterAll
-  static void shutdown() throws IOException {
+  static synchronized void shutdown() throws IOException {
     // delete the DuckDB
     // @todo: maybe we should delete only when all the tests have ran successfully?
     Path folderPath = Paths.get(EXTRACTION_PATH);
-    Files.walk(folderPath).sorted((p1, p2) -> -p1.compareTo(p2)).forEach(p -> {
-      try {
-        Files.delete(p);
-      } catch (IOException ex) {
-        LOGGER.log(Level.WARNING, "Failed to delete " + p, ex);
-      }
-    });
+    try (Stream<Path> stream = Files.walk(folderPath);) {
+      stream.sorted((p1, p2) -> -p1.compareTo(p2)).forEach(p -> {
+        try {
+          Files.delete(p);
+        } catch (IOException ex) {
+          LOGGER.log(Level.WARNING, "Failed to delete " + p, ex);
+        }
+      });
+    }
   }
 
   private static String upperCaseExceptEnclosed(String input) {
@@ -550,7 +594,7 @@ public class JSQLTranspilerTest {
 
     // Assertions.assertNotNull(t.expectedSqlStr);
     String transpiledSqlStr = JSQLTranspiler.transpileQuery(t.providedSqlStr, t.inputDialect,
-        Collections.emptyMap(), executorService, parser -> {
+        t.parameters, executorService, parser -> {
         });
     Assertions.assertThat(transpiledSqlStr).isNotNull();
     Assertions.assertThat(sanitize(transpiledSqlStr, true))
@@ -559,11 +603,12 @@ public class JSQLTranspilerTest {
     // For any JSON related test we want to distinguish the SQL NULL, while for anything else it
     // does not matter
     executeTest(connDuck, t, transpiledSqlStr,
-        f.getName().toLowerCase().contains("json") ? "JSQL_NULL" : "");
+        f.getName().toLowerCase().contains("json") ? JSQLResultSetHelperService.DEFAULT_NULL_VALUE
+            : "");
   }
 
   public static void executeTest(Connection connDuck, SQLTest t, String transpiledSqlStr,
-      String defaultValue) throws SQLException, IOException, JSQLParserException {
+      String nullValue) throws SQLException, IOException, JSQLParserException {
     // Expect this transpiled query to succeed since DuckDB does not support `TOP <integer>`
     if (t.expectedTally >= 0) {
       int i = 0;
@@ -592,26 +637,8 @@ public class JSQLTranspilerTest {
 
     if (t.expectedResult != null && !t.expectedResult.isEmpty()) {
       // Compare output
-      try (Statement st = connDuck.createStatement();) {
-        st.executeUpdate("set timezone='Asia/Bangkok'");
-
-        try (ResultSet rs = st.executeQuery(transpiledSqlStr);
-            StringWriter stringWriter = new StringWriter();
-            CSVWriter csvWriter = new CSVWriter(stringWriter);) {
-
-          // enforce SQL compliant format
-          ResultSetHelperService resultSetHelperService =
-              new JSQLResultSetHelperService(defaultValue);
-          resultSetHelperService.setDateFormat("yyyy-MM-dd");
-          resultSetHelperService.setDateTimeFormat("yyyy-MM-dd HH:mm:ss.S");
-          resultSetHelperService.setFloatingPointFormat(floatingPointFormat);
-          csvWriter.setResultService(resultSetHelperService);
-
-          csvWriter.writeAll(rs, true, false, true);
-          Assertions.assertThat(stringWriter.toString().trim())
-              .isEqualToIgnoringCase(t.expectedResult);
-        }
-      }
+      String outputResult = executeJdbcQuery(connDuck, transpiledSqlStr, nullValue);
+      Assertions.assertThat(outputResult).isEqualToIgnoringCase(t.expectedResult);
     }
 
     if (t.epilogue != null && !t.epilogue.isEmpty()) {
@@ -622,5 +649,250 @@ public class JSQLTranspilerTest {
         }
       }
     }
+  }
+
+  @Test
+  void testUnPipe() throws JSQLParserException, InterruptedException {
+    //@formatter:off
+    String providedStr =
+            "FROM customer\n" +
+            "|> LEFT OUTER JOIN orders ON c_custkey = o_custkey AND o_comment NOT LIKE '%unusual%packages%'\n" +
+            "|> AGGREGATE COUNT(o_orderkey) c_count GROUP BY c_custkey\n" +
+            "|> AGGREGATE COUNT(*) AS custdist GROUP BY c_count\n" +
+            "|> ORDER BY custdist DESC, c_count DESC;\n";
+
+    String expectedStr =
+            "SELECT  Count( * ) AS custdist\n" +
+            "        , c_count\n" +
+            "FROM (  SELECT  Count( o_orderkey ) c_count\n" +
+            "                , c_custkey\n" +
+            "        FROM customer\n" +
+            "            LEFT OUTER JOIN orders\n" +
+            "                ON c_custkey = o_custkey\n" +
+            "                    AND o_comment NOT LIKE '%unusual%packages%'\n" +
+            "        GROUP BY c_custkey )\n" +
+            "GROUP BY c_count\n" +
+            "ORDER BY    custdist DESC\n" +
+            "            , c_count DESC\n" +
+            ";";
+    //@formatter:on
+
+    // only rewrite the `FromQuery` and the `PipedOperators` but don't transpile expressions or
+    // functions
+    String transpiledSqlStr = JSQLTranspiler.unpipe(providedStr);
+
+    // compare output ignoring white space
+    Assertions.assertThat(sanitize(transpiledSqlStr, true)).isEqualTo(sanitize(expectedStr, true));
+  }
+
+  private static String executeJdbcQuery(Connection conn, String transpiledSqlStr)
+      throws SQLException, IOException {
+    return executeJdbcQuery(conn, transpiledSqlStr, JSQLResultSetHelperService.DEFAULT_NULL_VALUE);
+  }
+
+  private static String executeJdbcQuery(Connection conn, String transpiledSqlStr, String nullValue)
+      throws SQLException, IOException {
+    try (Statement st = conn.createStatement();) {
+      st.executeUpdate("set timezone='Asia/Bangkok'");
+      try (ResultSet rs = st.executeQuery(transpiledSqlStr)) {
+        return formatAsCSV(rs, nullValue);
+      }
+    }
+  }
+
+  private static String executeQuery(JSQLTranspiler.Dialect dialect, String query)
+      throws InterruptedException, SQLException, IOException {
+    String result = "";
+    if (dialect == JSQLTranspiler.Dialect.DUCK_DB) {
+      result = executeJdbcQuery(connDuck, query);
+    } else if (dialect == JSQLTranspiler.Dialect.GOOGLE_BIG_QUERY) {
+      result = executeBQQuery(query);
+    } else {
+      String dbJdbcURL = System.getenv(dialect.name().toUpperCase() + "_JDBC_URL");
+      String dbUserName = System.getenv(dialect.name().toUpperCase() + "_USERNAME");
+      String dbPassword = System.getenv(dialect.name().toUpperCase() + "_PASSWORD");
+      try (Connection jdbcConnection =
+          DriverManager.getConnection(dbJdbcURL, dbUserName, dbPassword)) {
+        result = executeJdbcQuery(jdbcConnection, query);
+      }
+    }
+    return result;
+  }
+
+  private static String executeBQQuery(String sqlStr)
+      throws InterruptedException, SQLException, IOException {
+    // Initialize BigQuery service
+    BigQuery bigquery = BigQueryOptions.getDefaultInstance().getService();
+
+    // Configure the query
+    QueryJobConfiguration queryConfig =
+        QueryJobConfiguration.newBuilder(sqlStr).setUseLegacySql(false).build();
+    JobId jobId = JobId.newBuilder().build();
+    Job queryJob = bigquery.create(JobInfo.newBuilder(queryConfig).setJobId(jobId).build());
+
+    // Wait for the query to complete.
+    queryJob = queryJob.waitFor();
+    if (queryJob == null) {
+      throw new RuntimeException("Job no longer exists");
+    } else if (queryJob.getStatus().getError() != null) {
+      // You can also look at queryJob.getStatus().getExecutionErrors() for all
+      // errors, not just the latest one.
+      throw new RuntimeException(queryJob.getStatus().getError().toString());
+    }
+    // Execute the query and retrieve results
+    TableResult results = queryJob.getQueryResults();
+    return formatAsCSV(new BigqueryResultSet(results));
+  }
+
+  private static String formatAsCSV(ResultSet rs) throws SQLException, IOException {
+    return formatAsCSV(rs, JSQLResultSetHelperService.DEFAULT_NULL_VALUE);
+  }
+
+  private static String formatAsCSV(ResultSet rs, String nullValue)
+      throws SQLException, IOException {
+    DecimalFormat floatingPointFormat = (DecimalFormat) DecimalFormat.getInstance(Locale.US);
+    floatingPointFormat.setGroupingUsed(false);
+    floatingPointFormat.setMaximumFractionDigits(9);
+    floatingPointFormat.setMinimumFractionDigits(1);
+    floatingPointFormat.setMinimumIntegerDigits(1);
+    StringWriter stringWriter = new StringWriter();
+    try (CSVWriter csvWriter = new CSVWriter(stringWriter)) {
+      // enforce SQL compliant format
+      ResultSetHelperService resultSetHelperService = new JSQLResultSetHelperService(nullValue);
+      resultSetHelperService.setDateFormat("yyyy-MM-dd");
+      resultSetHelperService.setDateTimeFormat("yyyy-MM-dd HH:mm:ss.S");
+      resultSetHelperService.setFloatingPointFormat(floatingPointFormat);
+      csvWriter.setResultService(resultSetHelperService);
+
+      csvWriter.writeAll(rs, true, false, true);
+      return stringWriter.toString().trim();
+    }
+  }
+
+  protected static void generateTestCase(JSQLTranspiler.Dialect inputDialect, String inputQuery,
+      String outputFilePath, int queryIndex, boolean supported) throws IOException {
+    generateTestCase(inputDialect, JSQLTranspiler.Dialect.DUCK_DB, inputQuery, outputFilePath,
+        queryIndex, supported);
+  }
+
+  protected static void generateTestCase(JSQLTranspiler.Dialect inputDialect,
+      JSQLTranspiler.Dialect outputDialect, String inputQuery, String outputFilePath,
+      int queryIndex, boolean supported) throws IOException {
+    boolean generationSuccess = true;
+    ExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
+    File outputFile = new File(outputFilePath);
+    File parentDir = outputFile.getParentFile();
+    if (parentDir != null && !parentDir.exists()) {
+      parentDir.mkdirs(); // Create missing directories
+    }
+    try (BufferedWriter writer =
+        new BufferedWriter(new FileWriter(outputFilePath, queryIndex > 1))) {
+      if (!supported) {
+        writer.write("/*\n");
+      }
+      // Write the provided input to the file
+      writer.write("-- provided test case " + queryIndex + "\n");
+      writer.write(inputQuery.trim() + "\n\n");
+
+      // Transpile the input
+      boolean transpilationSuccess = true;
+      String expectedSqlStr = "";
+      try {
+        expectedSqlStr = JSQLTranspiler.transpileQuery(inputQuery, inputDialect,
+            Collections.emptyMap(), executorService, parser -> {
+            });
+      } catch (JSQLParserException e) {
+        transpilationSuccess = false;
+        generationSuccess = false;
+        expectedSqlStr = "UNSUPPORTED" + e.getMessage().split("\\n|\\.")[0];
+      }
+
+      // Write the transpiled string to the file
+      writer.write("-- expected\n");
+      writer.write(expectedSqlStr + "\n\n");
+      String transpiledQueryResult = "";
+      if (transpilationSuccess) {
+        writer.write("-- output\n");
+        try {
+          transpiledQueryResult = executeQuery(outputDialect, expectedSqlStr);
+          writer.write(transpiledQueryResult + "\n\n");
+        } catch (Exception e) {
+          generationSuccess = false;
+          StringWriter sw = new StringWriter();
+          PrintWriter pw = new PrintWriter(sw);
+          e.printStackTrace(pw);
+          writer.write(
+              "INVALID_TRANSLATION " + e.getMessage().split("\\n|\\.")[0] + "\n" + sw + "\n\n");
+        }
+      } else {
+        writer.write("-- output\n");
+        writer.write("NOT TRANSPILED" + "\n\n");
+      }
+      writer.write("-- result\n");
+      String inputQueryResult = "";
+      try {
+        inputQueryResult = executeQuery(inputDialect, inputQuery);
+        writer.write(inputQueryResult + "\n\n");
+      } catch (Exception e) {
+        generationSuccess = false;
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        e.printStackTrace(pw);
+        writer.write(
+            "INVALID_INPUT_QUERY " + e.getMessage().split("\\n|\\.")[0] + "\n" + sw + "\n\n");
+      }
+      if (!supported) {
+        writer.write("*/\n");
+      }
+      // Flush the writer to ensure data is saved
+      writer.flush();
+      if (supported) {
+        if (generationSuccess) {
+          assertCSV(inputQueryResult, transpiledQueryResult, true);
+        } else {
+          throw new RuntimeException("A step during the generation was not successful");
+        }
+      }
+    } finally {
+      executorService.shutdown();
+    }
+  }
+
+  private static void assertCSV(String inputCSV, String expectedCSV, boolean ignoreLineOrder) {
+    List<String> inputRecords = parseCSV(inputCSV);
+    List<String> expectedRecords = parseCSV(expectedCSV);
+    if (ignoreLineOrder) {
+      Assertions.assertThat(inputRecords)
+          .containsExactlyInAnyOrder(expectedRecords.toArray(String[]::new));
+    } else {
+      Assertions.assertThat(inputRecords).isEqualTo(expectedRecords);
+    }
+  }
+
+  private static List<String> parseCSV(String csvLines) {
+    try (CSVReader reader = new CSVReader(new StringReader(csvLines))) {
+      final List<String[]> records = reader.readAll();
+      if (records.isEmpty()) {
+        return new ArrayList<>();
+      }
+
+      String[] headers = records.get(0);
+      List<Integer> orderedIndexes = getSortedHeaderIndexes(headers);
+      // don't skip first line which is header, we want to compare header output names as well
+      return records.stream().map(record -> {
+        List<String> sortedColumns = new ArrayList<>();
+        orderedIndexes.stream().forEach(i -> sortedColumns.add(record[i]));
+        return String.join(",", sortedColumns);
+      }).collect(Collectors.toList());
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    } catch (CsvException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  public static List<Integer> getSortedHeaderIndexes(String[] headers) {
+    return IntStream.range(0, headers.length).mapToObj(i -> Map.entry(headers[i], i))
+        .sorted(Map.Entry.comparingByKey()).map(e -> e.getValue()).collect(Collectors.toList());
   }
 }

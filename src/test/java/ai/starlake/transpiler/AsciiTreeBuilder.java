@@ -1,22 +1,18 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package ai.starlake.transpiler.snowflake;
+package ai.starlake.transpiler;
 
-import ai.starlake.transpiler.JSQLColumResolver;
 import ai.starlake.transpiler.schema.JdbcColumn;
 import ai.starlake.transpiler.schema.JdbcResultSetMetaData;
 import ai.starlake.transpiler.schema.treebuilder.TreeBuilder;
@@ -71,17 +67,22 @@ public class AsciiTreeBuilder extends TreeBuilder<String> {
       }
 
     } else if (expression instanceof Column) {
-
-      if (column.tableCatalog != null && !column.tableCatalog.isEmpty()) {
+      if (!StringUtils.isEmpty(column.tableCatalog)) {
         b.append(column.tableCatalog).append(".")
             .append(column.tableSchema != null ? column.tableSchema : "").append(".");
-      } else if (column.tableSchema != null && !column.tableSchema.isEmpty()) {
+      } else if (!StringUtils.isEmpty(column.tableSchema)) {
         b.append(column.tableSchema).append(".");
       }
-      b.append(column.tableName).append(".").append(column.columnName);
 
-      if (!StringUtils.equals(column.tableCatalog, column.scopeCatalog)
-          || !StringUtils.equals(column.tableSchema, column.scopeSchema)
+      if (!StringUtils.isEmpty(column.tableName)) {
+        b.append(column.tableName).append(".");
+      }
+      b.append(column.columnName);
+
+      if (!StringUtils.equals(StringUtils.defaultIfEmpty(column.tableCatalog, column.scopeCatalog),
+          column.scopeCatalog)
+          || !StringUtils.equals(StringUtils.defaultIfEmpty(column.tableSchema, column.scopeSchema),
+              column.scopeSchema)
           || !StringUtils.equals(column.tableName, column.scopeTable)) {
         b.append(" → ");
         if (column.scopeCatalog != null && !column.scopeCatalog.isEmpty()) {
@@ -123,7 +124,52 @@ public class AsciiTreeBuilder extends TreeBuilder<String> {
 
       b.append(expression.getClass().getSimpleName()).append(": ").append(expression);
     } else {
-      b.append("unresolvable");
+      if (!StringUtils.isEmpty(column.tableCatalog)) {
+        b.append(column.tableCatalog).append(".")
+            .append(column.tableSchema != null ? column.tableSchema : "").append(".");
+      } else if (!StringUtils.isEmpty(column.tableSchema)) {
+        b.append(column.tableSchema).append(".");
+      }
+
+      if (!StringUtils.isEmpty(column.tableName)) {
+        b.append(column.tableName).append(".");
+      }
+
+      b.append(column.columnName);
+
+      if (!StringUtils.equals(StringUtils.defaultIfEmpty(column.tableCatalog, column.scopeCatalog),
+          column.scopeCatalog)
+          || !StringUtils.equals(StringUtils.defaultIfEmpty(column.tableSchema, column.scopeSchema),
+              column.scopeSchema)
+          || !StringUtils.equals(column.tableName, column.scopeTable)) {
+        b.append(" → ");
+        if (column.scopeCatalog != null && !column.scopeCatalog.isEmpty()) {
+          b.append(column.scopeCatalog).append(".")
+              .append(column.scopeSchema != null ? column.scopeSchema : "").append(".");
+        } else if (column.scopeSchema != null && !column.scopeSchema.isEmpty()) {
+          b.append(column.scopeSchema).append(".");
+        }
+
+        if (!StringUtils.isEmpty(column.scopeTable)) {
+          b.append(column.scopeTable).append(".");
+        }
+
+        b.append(column.columnName);
+      }
+
+      b.append(" : ").append(column.typeName);
+
+      if (column.columnSize > 0) {
+        b.append("(").append(column.columnSize);
+        if (column.decimalDigits > 0) {
+          b.append(", ").append(column.decimalDigits);
+        }
+        b.append(")");
+      }
+
+      if (!StringUtils.isEmpty(column.remarks)) {
+        b.append(" ").append(column.remarks);
+      }
     }
 
     return b.toString();

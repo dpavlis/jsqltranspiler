@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,9 +19,9 @@ import ai.starlake.transpiler.schema.JdbcMetaData;
 import ai.starlake.transpiler.schema.JdbcResultSetMetaData;
 import ai.starlake.transpiler.schema.JdbcSchema;
 import ai.starlake.transpiler.schema.JdbcTable;
+import ai.starlake.transpiler.schema.treebuilder.FlattenedColumnBuilder;
 import ai.starlake.transpiler.schema.treebuilder.JsonTreeBuilder;
 import ai.starlake.transpiler.schema.treebuilder.XmlTreeBuilder;
-import ai.starlake.transpiler.snowflake.AsciiTreeBuilder;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.expression.operators.arithmetic.Addition;
@@ -38,6 +35,9 @@ import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
@@ -259,6 +259,28 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
   }
 
 
+  // https://github.com/starlake-ai/jsqltranspiler/issues/146
+  // Argless analytic functions like row_number() used to NPE in the resolver because
+  // AnalyticExpression.getExpression() returns null for them.
+  @Test
+  void testArglessAnalyticFunctions() throws JSQLParserException, SQLException {
+    String[][] schemaDef = {{"customer", "c_id", "c_email"}};
+    JSQLColumResolver resolver = new JSQLColumResolver("mycat", "myschema", schemaDef);
+    resolver.setErrorMode(JdbcMetaData.ErrorMode.STRICT);
+
+    // Each of these used to throw NPE
+    for (String sql : new String[] {"SELECT row_number() OVER (PARTITION BY c_email) FROM customer",
+        "SELECT row_number() OVER (ORDER BY c_email) FROM customer",
+        "SELECT row_number() OVER (PARTITION BY c_id ORDER BY c_email) FROM customer",
+        "SELECT rank() OVER (PARTITION BY c_email) FROM customer",
+        "SELECT dense_rank() OVER (PARTITION BY c_email) FROM customer",
+        "SELECT percent_rank() OVER (PARTITION BY c_email) FROM customer",
+        "SELECT cume_dist() OVER (PARTITION BY c_email) FROM customer"}) {
+      Assertions.assertThat(resolver.getResolvedStatementText(sql)).isNotNull();
+      Assertions.assertThat(resolver.getResultSetMetaData(sql)).isNotNull();
+    }
+  }
+
   @Test
   void testFunction() throws JSQLParserException, SQLException, InvocationTargetException,
       NoSuchMethodException, InstantiationException, IllegalAccessException {
@@ -468,7 +490,7 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     metaData.addTable("b", new JdbcColumn("col1"), new JdbcColumn("col2"), new JdbcColumn("col3"));
 
 
-    ResultSetMetaData res =
+    JdbcResultSetMetaData res =
         JSQLColumResolver.getResultSetMetaData("SELECT * FROM d.a, b", metaData);
     Assertions.assertThat(6).isEqualTo(res.getColumnCount());
 
@@ -493,7 +515,7 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     table.add(new JdbcColumn("b"));
     schema.put(table);
 
-    ResultSetMetaData res =
+    JdbcResultSetMetaData res =
         JSQLColumResolver.getResultSetMetaData("SELECT * from `c.s.t`", metaData);
 
     String[][] expected = new String[][] {{"c", "s", "t", "a", "a"}, {"c", "s", "t", "b", "b"}};
@@ -519,7 +541,7 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
             + "group by mycte.id, mycte.timestamp1";
 
 
-    ResultSetMetaData res =
+    JdbcResultSetMetaData res =
         JSQLColumResolver.getResultSetMetaData(sqlStr, JdbcMetaData.copyOf(metaData));
 
     String[][] expected = new String[][] {{"mycte", "id"}, {"", "sum"}, {"mycte", "timestamp1"}};
@@ -557,7 +579,7 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
             + "group by \"mycte\".\"id\", \"mycte\".\"timestamp\"";
     //@formatter:on
 
-    ResultSetMetaData res =
+    JdbcResultSetMetaData res =
         JSQLColumResolver.getResultSetMetaData(sqlStr, JdbcMetaData.copyOf(metaData));
 
     String[][] expected = new String[][] {{"mycte", "id"}, {"", "sum"}, {"mycte", "timestamp"}};
@@ -599,7 +621,7 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     Assertions.assertThatException().isThrownBy(new ThrowableAssert.ThrowingCallable() {
       @Override
       public void call() throws Throwable {
-        ResultSetMetaData res = JSQLColumResolver.getResultSetMetaData(sqlStr,
+        JdbcResultSetMetaData res = JSQLColumResolver.getResultSetMetaData(sqlStr,
             JdbcMetaData.copyOf(metaData.setErrorMode(JdbcMetaData.ErrorMode.STRICT)));
 
         String[][] expected = new String[][] {{"mycte", "id"}, {"", "sum"}, {"mycte", "timestamp"}};
@@ -608,7 +630,7 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     });
 
     // LENIENT MODE
-    ResultSetMetaData res = JSQLColumResolver.getResultSetMetaData(sqlStr,
+    JdbcResultSetMetaData res = JSQLColumResolver.getResultSetMetaData(sqlStr,
         JdbcMetaData.copyOf(metaData.setErrorMode(JdbcMetaData.ErrorMode.LENIENT)));
 
     String[][] expected = new String[][] {{"mycte", "id"}, {"", "sum"}, {"mycte", "timestamp"}};
@@ -616,11 +638,11 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
 
     //@formatter:off
     String lineage =
-            "SELECT\n" +
-            " ├─mycte.id → sales.customers.id : Other\n" +
-            " ├─sum AS Function sum\n" +
-            " │  └─unresolvable\n" +
-            " └─mycte.timestamp AS TimeKeyExpression: CURRENT_TIMESTAMP()\n";
+        "SELECT\n" +
+        " ├─mycte.id → sales.customers.id : Other\n" +
+        " ├─sum AS Function sum\n" +
+        " │  └─amount : Unknown Not found in schema\n" +
+        " └─mycte.timestamp AS TimeKeyExpression: CURRENT_TIMESTAMP()";
     //@formatter:on
     assertLineage(JdbcMetaData.copyOf(metaData), sqlStr, lineage);
 
@@ -665,7 +687,7 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
             + "group by `mycte`.`id`, `mycte`.`timestamp`";
     //@formatter:on
 
-    ResultSetMetaData res =
+    JdbcResultSetMetaData res =
         JSQLColumResolver.getResultSetMetaData(sqlStr, JdbcMetaData.copyOf(metaData));
 
     String[][] expected = new String[][] {{"mycte", "id"}, {"", "sum"}, {"mycte", "timestamp"}};
@@ -704,7 +726,7 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
             + "group by `mycte`.`id`, `mycte`.`timestamp`";
     //@formatter:on
 
-    ResultSetMetaData res =
+    JdbcResultSetMetaData res =
         JSQLColumResolver.getResultSetMetaData(sqlStr, JdbcMetaData.copyOf(metaData));
 
     String[][] expected = new String[][] {{"mycte", "id"}, {"", "sum"}, {"mycte", "timestamp"}};
@@ -753,7 +775,7 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
             + ";";
     //@formatter:on
 
-    ResultSetMetaData res =
+    JdbcResultSetMetaData res =
         JSQLColumResolver.getResultSetMetaData(sqlStr, JdbcMetaData.copyOf(metaData));
 
     //@formatter:off
@@ -841,11 +863,19 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
         + "FROM employees AS e";
 
     // The expected output in ASCII (alternatively JSON and XML is available)
-    String expected = "SELECT\n" + " ├─employees.name : Other\n" + " ├─project_count AS SELECT\n"
-        + " │  └─Function COUNT\n" + " │     └─projects.employee_id : Other\n"
-        + " │  └─projects.employee_id : Other\n" + " └─task_count AS SELECT\n"
-        + "    └─Function COUNT\n" + "       └─tasks.employee_id : Other\n"
-        + "    └─tasks.employee_id : Other\n";
+    // @formatter:off
+    String expected =
+            "SELECT\n" +
+            " ├─employees.name : Other\n" +
+            " ├─project_count AS SELECT\n" +
+            " │  └─Function COUNT\n" +
+            " │     └─projects.employee_id : Other\n" +
+            " │  └─projects.employee_id : Other\n" +
+            " └─task_count AS SELECT\n" +
+            "    └─Function COUNT\n" +
+            "       └─tasks.employee_id : Other\n" +
+            "    └─tasks.employee_id : Other\n";
+    // @formatter:on
     assertLineage(schemaDefinition, sqlStr, expected);
   }
 
@@ -942,4 +972,317 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     Assertions.assertThat(res.getColumns()).hasSize(4);
   }
 
+  @Test
+  void testIssue115() throws JSQLParserException, SQLException, InvocationTargetException,
+      NoSuchMethodException, InstantiationException, IllegalAccessException {
+    //@formatter:off
+    String sqlStr =
+            "WITH customer_metrics AS (\n"
+            + "        SELECT  Count( DISTINCT customer_id ) AS total_customers\n"
+            + "                , Avg( total_orders ) AS avg_orders_per_customer\n"
+            + "                , Avg( total_spent ) AS avg_spent_per_customer\n"
+            + "                , Min( first_order_date ) AS earliest_order_date\n"
+            + "                , Max( last_order_date ) AS latest_order_date\n"
+            + "                , Avg( days_since_first_order ) AS avg_customer_lifetime_days\n"
+            + "                , Avg( Array_Length( purchased_categories, 1 ) ) AS avg_categories_per_customer\n"
+            + "        FROM starbake_analytics.customer_purchase_history )\n"
+            + "    , order_metrics AS (\n"
+            + "        SELECT  Count( DISTINCT order_id ) AS total_orders\n"
+            + "                , Sum( total_order_value ) AS total_revenue\n"
+            + "                , Avg( total_order_value ) AS avg_order_value\n"
+            + "                , Count( DISTINCT customer_id ) AS customers_with_orders\n"
+            + "        FROM starbake_analytics.order_items_analysis )\n"
+            + "SELECT  cm.total_customers\n"
+            + "        , om.total_orders\n"
+            + "        , om.total_revenue\n"
+            + "        , om.avg_order_value\n"
+            + "        , cm.avg_orders_per_customer\n"
+            + "        , cm.avg_spent_per_customer\n"
+            + "        , cm.earliest_order_date\n"
+            + "        , cm.latest_order_date\n"
+            + "        , cm.avg_customer_lifetime_days\n"
+            + "        , cm.avg_categories_per_customer\n"
+            + "        , om.customers_with_orders::FLOAT\n"
+            + "             / cm.total_customers AS customer_order_rate\n"
+            + "        , om.total_revenue\n"
+            + "             / Nullif(  Cast( cm.latest_order_date AS DATE ) -  Cast( cm.earliest_order_date AS DATE ), 0 ) AS daily_revenue\n"
+            + "        , om.total_orders::FLOAT\n"
+            + "             / Nullif(  Cast( cm.latest_order_date AS DATE ) -  Cast( cm.earliest_order_date AS DATE ), 0 ) AS daily_order_rate\n"
+            + "-- om.total_revenue / NULLIF(DATEDIFF('day', cm.earliest_order_date, cm.latest_order_date), 0) AS daily_revenue,\n"
+            + " -- om.total_orders::FLOAT / NULLIF(DATEDIFF('day', cm.earliest_order_date, cm.latest_order_date), 0) AS daily_order_rate\n"
+            + "FROM customer_metrics cm\n"
+            + "    CROSS JOIN order_metrics om\n"
+            + ";";
+    //@formatter:on
+
+    // schema with 2 tables, but w/o any columns
+    JdbcMetaData jdbcMetadata = new JdbcMetaData("", "starbake_analytics");
+    jdbcMetadata.addTable("starbake_analytics", "customer_purchase_history", List.of());
+    jdbcMetadata.addTable("starbake_analytics", "order_items_analysis", List.of());
+
+    JdbcResultSetMetaData res = JSQLColumResolver.getResultSetMetaData(sqlStr,
+        jdbcMetadata.setErrorMode(JdbcMetaData.ErrorMode.LENIENT));
+
+    Assertions.assertThat(res.getColumns()).hasSize(13);
+
+    // The expected output in ASCII (alternatively JSON and XML is available)
+    // @formatter:off
+    String expected =
+            "SELECT\n" +
+            " ├─Function Count\n" +
+            " │  └─customer_id : Unknown Not found in schema\n" +
+            " ├─Function Count\n" +
+            " │  └─order_id : Unknown Not found in schema\n" +
+            " ├─Function Sum\n" +
+            " │  └─total_order_value : Unknown Not found in schema\n" +
+            " ├─Function Avg\n" +
+            " │  └─total_order_value : Unknown Not found in schema\n" +
+            " ├─Function Avg\n" +
+            " │  └─total_orders : Unknown Not found in schema\n" +
+            " ├─Function Avg\n" +
+            " │  └─total_spent : Unknown Not found in schema\n" +
+            " ├─Function Min\n" +
+            " │  └─first_order_date : Unknown Not found in schema\n" +
+            " ├─Function Max\n" +
+            " │  └─last_order_date : Unknown Not found in schema\n" +
+            " ├─Function Avg\n" +
+            " │  └─days_since_first_order : Unknown Not found in schema\n" +
+            " ├─Function Avg\n" +
+            " │  └─.Array_Length AS Function Array_Length\n" +
+            " │     ├─purchased_categories : Unknown Not found in schema\n" +
+            " │     └─LongValue: 1\n" +
+            " ├─customer_order_rate AS Division: om.customers_with_orders::FLOAT / cm.total_customers\n" +
+            " │  ├─Function Count\n" +
+            " │  │  └─customer_id : Unknown Not found in schema\n" +
+            " │  └─Function Count\n" +
+            " │     └─customer_id : Unknown Not found in schema\n" +
+            " ├─daily_revenue AS Division: om.total_revenue / Nullif(Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE), 0)\n" +
+            " │  ├─Function Sum\n" +
+            " │  │  └─total_order_value : Unknown Not found in schema\n" +
+            " │  └─.Nullif AS Function Nullif\n" +
+                    " │     ├─Subtraction: Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE)\n" +
+                    " │     │  ├─Function Max\n" +
+                    " │     │  │  └─last_order_date : Unknown Not found in schema\n" +
+                    " │     │  └─Function Min\n" +
+                    " │     │     └─first_order_date : Unknown Not found in schema\n" +
+                    " │     └─LongValue: 0\n" +
+                    " └─daily_order_rate AS Division: om.total_orders::FLOAT / Nullif(Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE), 0)\n" +
+                    "    ├─Function Count\n" +
+                    "    │  └─order_id : Unknown Not found in schema\n" +
+                    "    └─.Nullif AS Function Nullif\n" +
+                    "       ├─Subtraction: Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE)\n" +
+                    "       │  ├─Function Max\n" +
+                    "       │  │  └─last_order_date : Unknown Not found in schema\n" +
+                    "       │  └─Function Min\n" +
+                    "       │     └─first_order_date : Unknown Not found in schema\n" +
+                    "       └─LongValue: 0\n";
+    // @formatter:on
+    assertLineage(jdbcMetadata, sqlStr, expected);
+
+  }
+
+
+  @Test
+  void testIssue119MissingSourceTable()
+      throws JSQLParserException, SQLException, InvocationTargetException, NoSuchMethodException,
+      InstantiationException, IllegalAccessException {
+    // formatter:off
+    String sqlStr = "WITH customer_orders AS (\n" + "        SELECT  o.customer_id\n"
+        + "                , Count( DISTINCT o.order_id ) AS total_orders\n"
+        + "                , Sum( o.quantity * p.price ) AS total_spent\n"
+        + "                , Min( o.order_date ) AS first_order_date\n"
+        + "                , Max( o.order_date ) AS last_order_date\n"
+        + "                , Array_Agg( DISTINCT p.category ) AS purchased_categories\n"
+        + "        FROM starbake.orders o\n" + "            JOIN starbake.products p\n"
+        + "                ON o.product_id = p.product_id\n" + "        GROUP BY o.customer_id )\n"
+        + "SELECT  co.customer_id\n"
+        + "        , Concat( c.first_name, ' ', c.last_name ) AS customer_name\n"
+        + "        , c.email\n" + "        , co.total_orders\n" + "        , co.total_spent\n"
+        + "        , co.first_order_date\n" + "        , co.last_order_date\n"
+        + "        , co.purchased_categories\n"
+        + "        , (  Cast( co.last_order_date AS DATE ) -  Cast( co.first_order_date AS DATE ) ) AS days_since_first_order\n"
+        + "FROM starbake.customers c\n" + "    LEFT JOIN customer_orders co\n"
+        + "        ON c.id = co.customer_id\n" + "ORDER BY co.total_spent DESC NULLS LAST\n" + ";";
+
+    String[][] expected =
+        new String[][] {{"customer_orders", "customer_id"}, {"", "Concat"}, {"customers", "email"},
+            {"customer_orders", "total_orders"}, {"customer_orders", "total_spent"},
+            {"customer_orders", "first_order_date"}, {"customer_orders", "last_order_date"},
+            {"customer_orders", "purchased_categories"}, {"", "ParenthesedExpressionList"}};
+    // formatter:on
+
+    JdbcMetaData meta = new JdbcMetaData(JSQLSchemaDiffTest.getStarlakeSchemas());
+    JdbcResultSetMetaData res = JSQLColumResolver.getResultSetMetaData(sqlStr,
+        meta.setErrorMode(JdbcMetaData.ErrorMode.LENIENT));
+    assertThatResolvesInto(res, expected);
+
+    Assertions.assertThat(res.getScopeTable(3)).isEqualToIgnoringCase("customers");
+
+    // The expected output in ASCII (alternatively JSON and XML is available)
+    // @formatter:off
+    String expectedASCII =
+            "SELECT\n" +
+            " ├─customer_orders.customer_id → starbake.orders.customer_id : long\n" +
+            " ├─customer_name AS .Concat AS Function Concat\n" +
+            " │  ├─starbake.customers.first_name : string\n" +
+            " │  ├─StringValue: ' '\n" +
+            " │  └─starbake.customers.last_name : string\n" +
+            " ├─starbake.customers.email : string\n" +
+            " ├─Function Count\n" +
+            " │  └─starbake.orders.order_id : long\n" +
+            " ├─Function Sum\n" +
+            " │  └─Multiplication: o.quantity * p.price\n" +
+            " │     ├─starbake.orders.quantity : long\n" +
+            " │     └─starbake.products.price : double\n" +
+            " ├─Function Min\n" +
+            " │  └─starbake.orders.order_date : date\n" +
+            " ├─Function Max\n" +
+            " │  └─starbake.orders.order_date : date\n" +
+            " ├─Function Array_Agg\n" +
+            " │  └─starbake.products.category : string\n" +
+            " └─days_since_first_order AS ParenthesedExpressionList: (Cast(co.last_order_date AS DATE) - Cast(co.first_order_date AS DATE))\n" +
+            "    └─Subtraction: Cast(co.last_order_date AS DATE) - Cast(co.first_order_date AS DATE)\n" +
+            "       ├─Function Max\n" +
+            "       │  └─starbake.orders.order_date : date\n" +
+            "       └─Function Min\n" +
+            "          └─starbake.orders.order_date : date\n";
+    // @formatter:on
+    assertLineage(meta, sqlStr, expectedASCII);
+  }
+
+  @Test
+  void testFlattenedDependencies() throws JSQLParserException, SQLException {
+    // formatter:off
+    String sqlStr = "WITH customer_orders AS (\n" + "        SELECT  o.customer_id\n"
+        + "                , Count( DISTINCT o.order_id ) AS total_orders\n"
+        + "                , Sum( o.quantity * p.price ) AS total_spent\n"
+        + "                , Min( o.order_date ) AS first_order_date\n"
+        + "                , Max( o.order_date ) AS last_order_date\n"
+        + "                , Array_Agg( DISTINCT p.category ) AS purchased_categories\n"
+        + "        FROM starbake.orders o\n" + "            JOIN starbake.products p\n"
+        + "                ON o.product_id = p.product_id\n" + "        GROUP BY o.customer_id )\n"
+        + "SELECT  co.customer_id\n"
+        + "        , Concat( c.first_name, ' ', c.last_name ) AS customer_name\n"
+        + "        , c.email\n" + "        , co.total_orders\n" + "        , co.total_spent\n"
+        + "        , co.first_order_date\n" + "        , co.last_order_date\n"
+        + "        , co.purchased_categories\n"
+        + "        , (  Cast( co.last_order_date AS DATE ) -  Cast( co.first_order_date AS DATE ) ) AS days_since_first_order\n"
+        + "FROM starbake.customers c\n" + "    LEFT JOIN customer_orders co\n"
+        + "        ON c.id = co.customer_id\n" + "ORDER BY co.total_spent DESC NULLS LAST\n" + ";";
+    // formatter:on
+
+    JdbcMetaData meta = new JdbcMetaData(JSQLSchemaDiffTest.getStarlakeSchemas());
+    JSQLColumResolver resolver = new JSQLColumResolver(meta);
+    Map<String, Set<String>> dependencies = resolver.getLineage(sqlStr);
+
+    // Verify the structure
+    Assertions.assertThat(dependencies).isNotNull();
+    Assertions.assertThat(dependencies).hasSize(9);
+
+    // Verify customer_id dependencies
+    Assertions.assertThat(dependencies).containsKey("customer_id");
+    Assertions.assertThat(dependencies.get("customer_id"))
+        .containsExactly("starbake.orders.customer_id");
+
+    // Verify customer_name dependencies (should flatten to first_name and last_name)
+    Assertions.assertThat(dependencies).containsKey("customer_name");
+    Assertions.assertThat(dependencies.get("customer_name"))
+        .containsExactlyInAnyOrder("starbake.customers.first_name", "starbake.customers.last_name");
+
+    // Verify email dependencies
+    Assertions.assertThat(dependencies).containsKey("email");
+    Assertions.assertThat(dependencies.get("email")).containsExactly("starbake.customers.email");
+
+    // Verify total_orders dependencies (Count of order_id)
+    Assertions.assertThat(dependencies).containsKey("total_orders");
+    Assertions.assertThat(dependencies.get("total_orders"))
+        .containsExactly("starbake.orders.order_id");
+
+    // Verify total_spent dependencies (Sum of quantity * price)
+    Assertions.assertThat(dependencies).containsKey("total_spent");
+    Assertions.assertThat(dependencies.get("total_spent"))
+        .containsExactlyInAnyOrder("starbake.orders.quantity", "starbake.products.price");
+
+    // Verify first_order_date dependencies
+    Assertions.assertThat(dependencies).containsKey("first_order_date");
+    Assertions.assertThat(dependencies.get("first_order_date"))
+        .containsExactly("starbake.orders.order_date");
+
+    // Verify last_order_date dependencies
+    Assertions.assertThat(dependencies).containsKey("last_order_date");
+    Assertions.assertThat(dependencies.get("last_order_date"))
+        .containsExactly("starbake.orders.order_date");
+
+    // Verify purchased_categories dependencies
+    Assertions.assertThat(dependencies).containsKey("purchased_categories");
+    Assertions.assertThat(dependencies.get("purchased_categories"))
+        .containsExactly("starbake.products.category");
+
+    // Verify days_since_first_order dependencies (should have order_date twice from Min and Max)
+    Assertions.assertThat(dependencies).containsKey("days_since_first_order");
+    Assertions.assertThat(dependencies.get("days_since_first_order"))
+        .containsExactly("starbake.orders.order_date");
+  }
+
+  @Test
+  void testSimpleQuery() throws JSQLParserException, SQLException {
+    // formatter:off
+    String sqlStr = "SELECT c.first_name, c.last_name, c.email, o.order_id, o.order_date "
+        + "FROM starbake.customers c " + "JOIN starbake.orders o ON c.id = o.customer_id";
+    // formatter:on
+
+    JdbcMetaData meta = new JdbcMetaData(JSQLSchemaDiffTest.getStarlakeSchemas());
+    JdbcResultSetMetaData resultSetMetaData = JSQLColumResolver.getResultSetMetaData(sqlStr,
+        meta.setErrorMode(JdbcMetaData.ErrorMode.LENIENT));
+
+    FlattenedColumnBuilder builder = new FlattenedColumnBuilder(resultSetMetaData);
+
+    JSQLColumResolver resolver = new JSQLColumResolver(meta);
+    Map<String, Set<String>> dependencies = builder.getConvertedTree(resolver);
+
+    // Verify simple column mappings
+    Assertions.assertThat(dependencies).hasSize(5);
+
+    Assertions.assertThat(dependencies.get("first_name"))
+        .containsExactly("starbake.customers.first_name");
+
+    Assertions.assertThat(dependencies.get("last_name"))
+        .containsExactly("starbake.customers.last_name");
+
+    Assertions.assertThat(dependencies.get("email")).containsExactly("starbake.customers.email");
+
+    Assertions.assertThat(dependencies.get("order_id")).containsExactly("starbake.orders.order_id");
+
+    Assertions.assertThat(dependencies.get("order_date"))
+        .containsExactly("starbake.orders.order_date");
+  }
+
+  @Test
+  void testNestedSubquery() throws JSQLParserException, SQLException {
+    // formatter:off
+    String sqlStr = "SELECT customer_id, total_amount "
+        + "FROM (SELECT o.customer_id, Sum(o.quantity * p.price) AS total_amount "
+        + "      FROM starbake.orders o "
+        + "      JOIN starbake.products p ON o.product_id = p.product_id "
+        + "      GROUP BY o.customer_id) AS subq";
+    // formatter:on
+
+    JdbcMetaData meta = new JdbcMetaData(JSQLSchemaDiffTest.getStarlakeSchemas());
+    JdbcResultSetMetaData resultSetMetaData = JSQLColumResolver.getResultSetMetaData(sqlStr,
+        meta.setErrorMode(JdbcMetaData.ErrorMode.LENIENT));
+
+    FlattenedColumnBuilder builder = new FlattenedColumnBuilder(resultSetMetaData);
+
+    JSQLColumResolver resolver = new JSQLColumResolver(meta);
+    Map<String, Set<String>> dependencies = builder.getConvertedTree(resolver);
+
+    // Verify subquery flattening
+    Assertions.assertThat(dependencies).hasSize(2);
+
+    Assertions.assertThat(dependencies.get("customer_id"))
+        .containsExactly("starbake.orders.customer_id");
+
+    Assertions.assertThat(dependencies.get("total_amount"))
+        .containsExactlyInAnyOrder("starbake.orders.quantity", "starbake.products.price");
+  }
 }

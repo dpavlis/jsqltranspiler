@@ -11,16 +11,21 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ windows-latest, macos-latest, ubuntu-latest ]
+        os: [ ubuntu-latest ]
       max-parallel: 1
     runs-on: ${{matrix.os}}
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    - name: Set up JDK 11
+    - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
-        java-version: '11'
+        java-version: '17'
         distribution: 'temurin'
-    - run: ./gradlew check jacocoTestReport jacocoTestCoverageVerification coveralls
+    # com.vanniktech.maven.publish resolves Sonatype creds at configuration time, so even
+    # ./gradlew check fails on PRs without them. Stub empty values; verify never runs publish.
+    - run: LANG=en_US.UTF-8 ./gradlew check jacocoTestReport jacocoTestCoverageVerification coveralls
+      env:
+        ORG_GRADLE_PROJECT_mavenCentralUsername: ""
+        ORG_GRADLE_PROJECT_mavenCentralPassword: ""

@@ -1,14 +1,9 @@
---provided
-SELECT ARRAY(
-           SELECT CAST(integer_element AS INT64)
-  FROM UNNEST(
-    JSON_EXTRACT_ARRAY('[1,2,3]','$')
-  ) AS integer_element
-) AS integer_array;
+-- provided
+SELECT JSON_OBJECT(['a', 'b'], [JSON '10', JSON '"foo"']) AS json_data;
 
---expected
-SELECT List_Sort(Array(SELECT CAST(integer_element AS INT64) FROM (SELECT UNNEST(JSon_Extract('[1,2,3]', '$[*]')) AS integer_element) AS integer_element)) AS integer_array
+-- expected
+SELECT JSON_OBJECT(['a','b']::VARCHAR,[JSON '10',JSON '"foo"'])AS JSON_DATA;
 
---result
-"integer_array"
-"[1, 2, 3]"
+-- result
+"json_data"
+"{""[a, b]"":[10,""foo""]}"

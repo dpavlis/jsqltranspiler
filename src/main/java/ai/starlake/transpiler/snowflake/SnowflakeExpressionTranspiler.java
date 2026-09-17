@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -152,6 +149,8 @@ public class SnowflakeExpressionTranspiler extends RedshiftExpressionTranspiler 
   @Override
   @SuppressWarnings({"PMD.CyclomaticComplexity", "PMD.ExcessiveMethodLength"})
   public <S> StringBuilder visit(Function function, S params) {
+    rewriteDateTimeLiteralParameters(function);
+
     String functionName = function.getName().toUpperCase();
     boolean hasParameters = hasParameters(function);
     int paramCount = hasParameters ? function.getParameters().size() : 0;
@@ -1032,7 +1031,19 @@ public class SnowflakeExpressionTranspiler extends RedshiftExpressionTranspiler 
           if (paramCount > 1) {
             warning("SRID and ALLOW_INVALID are not supported.");
           }
-          rewrittenExpression = new CastExpression("Cast", parameters.get(0), "GEOMETRY");
+          function.setName("ST_GEOMFROMTEXT$$");
+          if (parameters.get(0) instanceof StringValue) {
+            String regex = "(?i)SRID=\\d+;";
+            String s = ((StringValue) parameters.get(0)).getValue();
+            if (s.toUpperCase().contains("SRID")) {
+              warning("SRID is not supported");
+              function.setParameters(new StringValue(s.replaceAll(regex, "")));
+            } else {
+              function.setParameters(parameters.get(0));
+            }
+          } else {
+            function.setParameters(parameters.get(0));
+          }
           break;
         case TRY_TO_GEOMETRY:
           if (paramCount > 1) {
@@ -1179,7 +1190,8 @@ public class SnowflakeExpressionTranspiler extends RedshiftExpressionTranspiler 
     } else if (colDataType.getDataType().equalsIgnoreCase("NUMBER")) {
       colDataType.setDataType("NUMERIC");
     } else if (colDataType.getDataType().equalsIgnoreCase("VARIANT")) {
-      colDataType.setDataType("VARCHAR");
+      // DuckDB 1.4+ has a native VARIANT type
+      colDataType.setDataType(getVariantMode() == VariantMode.VARIANT ? "VARIANT" : "VARCHAR");
     }
     return super.rewriteType(colDataType);
   }

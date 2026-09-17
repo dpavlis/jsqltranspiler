@@ -3,7 +3,7 @@ SELECT DATE_ADD(DATE '2008-12-25', INTERVAL 5 DAY) AS five_days_later
 ;
 
 -- expected
-SELECT DATE_ADD(DATE '2008-12-25', INTERVAL '5 DAY') AS five_days_later
+SELECT DATE_ADD(DATE '2008-12-25', INTERVAL 5 DAY) AS five_days_later
 ;
 
 -- count
@@ -19,7 +19,7 @@ SELECT DATE_ADD(DATE '2008-12-25', INTERVAL -5 DAY) AS five_days_ago
 ;
 
 -- expected
-SELECT DATE_ADD(DATE '2008-12-25', INTERVAL '-5 DAY') AS five_days_ago
+SELECT DATE_ADD(DATE '2008-12-25', INTERVAL '-5' DAY) AS five_days_ago
 ;
 
 -- count
@@ -37,7 +37,7 @@ SELECT
 -- expected
 SELECT
   DATETIME '2008-12-25 15:30:00' as original_date,
-  DATE_ADD(DATETIME '2008-12-25 15:30:00', INTERVAL '10 MINUTE') as later;
+  DATE_ADD(DATETIME '2008-12-25 15:30:00', INTERVAL 10 MINUTE) as later;
 
 -- result
 "original_date","later"
@@ -52,7 +52,7 @@ SELECT
 -- expected
 SELECT
   TIME '15:30:00' as original_time,
-  DATE_ADD(TIME '15:30:00', INTERVAL '10 MINUTE') as later;
+  DATE_ADD(TIME '15:30:00', INTERVAL 10 MINUTE) as later;
 
 -- result
 "original_time","later"
@@ -67,10 +67,10 @@ SELECT
 -- expected
 SELECT
   CAST('2008-12-25 15:30:00+00' AS TIMESTAMPTZ) as original_time,
-  DATE_ADD(TIMESTAMPTZ '2008-12-25 15:30:00+00', INTERVAL '10 MINUTE') as later;
+  DATE_ADD(TIMESTAMPTZ '2008-12-25 15:30:00+00', INTERVAL 10 MINUTE) as later;
 
 -- result
 "original_time","later"
-"2008-12-25T15:30Z","2008-12-25T15:40Z"
+"2008-12-25T22:30+07:00","2008-12-25T22:40+07:00"
 
 

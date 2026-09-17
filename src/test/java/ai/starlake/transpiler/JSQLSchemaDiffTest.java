@@ -1,0 +1,795 @@
+/**
+ * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package ai.starlake.transpiler;
+
+import ai.starlake.transpiler.diff.Attribute;
+import ai.starlake.transpiler.diff.AttributeStatus;
+import ai.starlake.transpiler.diff.DBSchema;
+import net.sf.jsqlparser.JSQLParserException;
+import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.Collection;
+import java.util.List;
+
+class JSQLSchemaDiffTest {
+  @Test
+  void getDiffSingleSchema() throws JSQLParserException, SQLException {
+    //@formatter:off
+    DBSchema schema = new DBSchema(
+            ""
+            , "starbake"
+            , "orders"
+            , new Attribute("id", Long.class)
+            , new Attribute("order_id", String.class)
+            , new Attribute("order_date", Timestamp.class)
+    );
+    schema.put(
+            "order_lines"
+            , new Attribute("id", Long.class)
+            , new Attribute("quantity", Long.class)
+            , new Attribute("sale_price", Float.class)
+    );
+
+    String sqlStr =
+            "SELECT  o.order_id\n"
+            + "        , o.order_date\n"
+            + "        , Sum( ol.quantity * ol.sale_price ) AS total_revenue\n"
+            + "FROM starbake.orders o\n"
+            + "    INNER JOIN starbake.order_lines ol\n"
+            + "            USING ( id )\n"
+            + "GROUP BY    o.order_id\n"
+            + "            , o.order_date\n"
+            + ";";
+
+    List<Attribute> expected = List.of(
+            new Attribute("order_id", "string")
+            , new Attribute("order_date", "timestamp")
+            , new Attribute("total_revenue", "double", AttributeStatus.ADDED)
+            , new Attribute("id", Long.class, AttributeStatus.REMOVED)
+    );
+    //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(schema);
+    List<Attribute> actual = diff.getDiff(sqlStr, "starbake.orders");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void getDiffMultiSchema() throws JSQLParserException, SQLException {
+    //@formatter:off
+    DBSchema schema1 = new DBSchema(
+            ""
+            , "starbake"
+            , "orders"
+            , new Attribute("id", Long.class)
+            , new Attribute("order_id", String.class)
+            , new Attribute("order_date", Timestamp.class)
+    );
+    DBSchema schema2 = new DBSchema(
+            ""
+            , "starlord"
+            , "order_lines"
+            , new Attribute("id", Long.class)
+            , new Attribute("quantity", Long.class)
+            , new Attribute("sale_price", Float.class)
+    );
+
+    String sqlStr =
+            "SELECT  o.order_id\n"
+            + "        , o.order_date\n"
+            + "        , Sum( ol.quantity * ol.sale_price ) AS total_revenue\n"
+            + "FROM starbake.orders o\n"
+            + "    INNER JOIN starlord.order_lines ol\n"
+            + "            USING ( id )\n"
+            + "GROUP BY    o.order_id\n"
+            + "            , o.order_date\n"
+            + ";";
+
+    List<Attribute> expected = List.of(
+            new Attribute("order_id", "string")
+            , new Attribute("order_date", "timestamp")
+            , new Attribute("total_revenue", "double", AttributeStatus.ADDED)
+            , new Attribute("id", Long.class, AttributeStatus.REMOVED)
+    );
+    //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(schema1, schema2);
+    List<Attribute> actual = diff.getDiff(sqlStr, "starbake.orders");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void getDiffMultiSchema2() throws JSQLParserException, SQLException {
+    //@formatter:off
+    DBSchema schema1 = new DBSchema(
+            ""
+            , "starbake"
+            , "orders"
+            , new Attribute("order_id", Long.class)
+            , new Attribute("timestamp", Timestamp.class)
+    );
+    DBSchema schema2 = new DBSchema(
+            ""
+            , "starbake"
+            , "order_lines"
+            , new Attribute("order_id", Long.class)
+            , new Attribute("quantity", Long.class)
+            , new Attribute("sale_price", Double.class)
+    );
+    DBSchema schema3 = new DBSchema(
+            ""
+            , "kpi"
+            , "revenue_summary"
+            , new Attribute("order_id", Long.class)
+            , new Attribute("order_date", Timestamp.class)
+            , new Attribute("total_revenue", Double.class)
+    );
+
+    String sqlStr =
+            "SELECT  o.order_id\n"
+            + "        , o.timestamp AS order_date\n"
+            + "        , Sum( ol.quantity * ol.sale_price ) AS total_revenue\n"
+            + "FROM starbake.orders o\n"
+            + "    JOIN starbake.order_lines ol\n"
+            + "        ON o.order_id = ol.order_id\n"
+            + "GROUP BY    o.order_id\n"
+            + "            , o.timestamp\n"
+            + ";";
+
+    List<Attribute> expected = List.of(
+            new Attribute("order_id", "long")
+            , new Attribute("order_date", "timestamp")
+            , new Attribute("total_revenue", "double")
+    );
+    //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(schema1, schema2, schema3);
+    List<Attribute> actual = diff.getDiff(sqlStr, "kpi.revenue_summary");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  /*
+  ---
+  - schemaName: "starbake_analytics"
+  tables:
+    customer_purchase_history:
+    - name: "customer_id"
+      type: "long"
+    - name: "purchase_date"
+      type: "date"
+  - schemaName: "starbake"
+  tables:
+    customers:
+    - name: "id"
+      type: "int"
+    - name: "first_name"
+      type: "string"
+    - name: "last_name"
+      type: "string"
+    - name: "email"
+      type: "string"
+    - name: "join_date"
+      type: "date"
+    orders:
+    - name: "customer_id"
+      type: "long"
+    - name: "order_date"
+      type: "date"
+    - name: "order_id"
+      type: "long"
+    - name: "product_id"
+      type: "long"
+    - name: "quantity"
+      type: "long"
+    products:
+    - name: "category"
+      type: "string"
+    - name: "cost"
+      type: "double"
+    - name: "description"
+      type: "string"
+    - name: "name"
+      type: "string"
+    - name: "price"
+      type: "double"
+    - name: "product_id"
+      type: "int"
+  - schemaName: "auditing"
+  tables:
+  audit_kpi:
+    name: "order_id"
+    type: "long"
+    status: "UNCHANGED"
+    array: false
+    nestedField: false
+    name: "order_date"
+    type: "date"
+    status: "UNCHANGED"
+    array: false
+    nestedField: false
+    name: "customer_id"
+    type: "long"
+    status: "UNCHANGED"
+    array: false
+    nestedField: false
+    name: "purchased_items"
+    type: "string"
+    status: "UNCHANGED"
+    array: false
+    nestedField: false
+    name: "total_order_value"
+    type: "decimal"
+    status: "UNCHANGED"
+    array: false
+    nestedField: false
+  
+   */
+
+  public static Collection<DBSchema> getStarlakeSchemas() {
+    //@formatter:off
+    DBSchema schema1 = new DBSchema(
+            ""
+            , "starbake"
+            , "orders"
+            , new Attribute("customer_id", "long")
+            , new Attribute("order_date", "date")
+            , new Attribute("order_id", "long")
+            , new Attribute("product_id", "long")
+            , new Attribute("quantity", "long")
+    );
+    DBSchema schema2 = new DBSchema(
+            ""
+            , "starbake"
+            , "products"
+            , new Attribute("category", "string")
+            , new Attribute("cost", "double")
+            , new Attribute("description", "string")
+            , new Attribute("name", "string")
+            , new Attribute("price", "double")
+            , new Attribute("product_id", "int")
+    );
+    DBSchema schema3 = new DBSchema(
+            ""
+            , "starbake"
+            , "customers"
+            , new Attribute("id", "int")
+            , new Attribute("first_name", "string")
+            , new Attribute("last_name", "string")
+            , new Attribute("email", "string")
+            , new Attribute("join_date", "date")
+    );
+
+    DBSchema schema4 = new DBSchema(
+            ""
+            , "starbake_analytics"
+            , "customer_purchase_history"
+            , new Attribute("customer_id", "long")
+            , new Attribute("customer_name", "string")
+            , new Attribute("email", "string")
+            , new Attribute("total_orders", "long")
+            , new Attribute("total_spent", "double")
+            , new Attribute("first_order_date", "date")
+            , new Attribute("last_order_date", "date")
+            , new Attribute("purchased_categories", "string", true, null, AttributeStatus.UNCHANGED)
+            , new Attribute("days_since_first_order", "long")
+    );
+
+    DBSchema schema5 = new DBSchema(
+            ""
+            , "audit"
+            , "audit_kpi"
+            , new Attribute("order_id", "long")
+            , new Attribute("order_date", "date")
+            , new Attribute("customer_id", "long")
+            , new Attribute("purchased_items", "string")
+            , new Attribute("total_order_value", "decimal")
+    );
+
+    DBSchema schema6 = new DBSchema(
+            ""
+            , "audit"
+            , "audit"
+            , new Attribute("JOBID", "string")
+            , new Attribute("PATHS", "string")
+            , new Attribute("SCHEMA", "string")
+            , new Attribute("SUCCESS", "boolean")
+            , new Attribute("COUNT", "long")
+            , new Attribute("COUNTACCEPTED", "long")
+            , new Attribute("COUNTREJECTED", "long")
+            , new Attribute("TIMESTAMP", "timestamp")
+            , new Attribute("DURATION", "long")
+            , new Attribute("MESSAGE", "string")
+            , new Attribute("STEP", "string")
+            , new Attribute("DATABASE", "string")
+            , new Attribute("TENANT", "string")
+    );
+
+      DBSchema schema7 = new DBSchema(
+              ""
+              , "starbake_kpis"
+              , "overall_kpis"
+              , new Attribute("total_customers", "long")
+              , new Attribute("total_orders", "long")
+              , new Attribute("total_revenue", "double")
+              , new Attribute("avg_order_value", "double")
+              , new Attribute("avg_orders_per_customer", "double")
+              , new Attribute("avg_spent_per_customer", "double")
+              , new Attribute("earliest_order_date", "date")
+              , new Attribute("latest_order_date", "date")
+              , new Attribute("avg_customer_lifetime_days", "double")
+              , new Attribute("avg_categories_per_customer", "double")
+              , new Attribute("customer_order_rate", "double")
+              , new Attribute("daily_revenue", "double")
+              , new Attribute("daily_order_rate", "double")
+      );
+
+      DBSchema schema8 = new DBSchema(
+              ""
+              , "starbake_analytics"
+              , "order_items_analysis"
+              , new Attribute("order_id", "long")
+              , new Attribute("order_date", "date")
+              , new Attribute("customer_id", "long")
+              , new Attribute("purchased_items", "string", true, null, AttributeStatus.UNCHANGED)
+              , new Attribute("total_order_value", "double")
+      );
+
+    DBSchema schema99 = new DBSchema(
+            ""
+            , "starbake"
+            , "array_test"
+            , new Attribute("keys", "string", true, null, AttributeStatus.ADDED)
+            , new Attribute(
+                    "values1"
+                  , "struct"
+                  , false
+                  , List.of(
+                          new Attribute("field1", "string")
+                          , new Attribute("field2", "double")
+                    )
+                  , AttributeStatus.ADDED
+            )
+            , new Attribute(
+                  "values2"
+                        , "struct"
+                        , true
+                        , List.of(
+                        new Attribute("field1", "string")
+                        , new Attribute("field2", "double")
+                  )
+                  , AttributeStatus.ADDED
+          )
+    );
+    //@formatter:off
+
+    return List.of(schema1, schema2, schema3, schema4, schema5, schema6, schema7, schema8, schema99);
+  }
+
+  @Test
+  void testIssue114() throws JSQLParserException, SQLException {
+    String sqlStr =
+            "WITH customer_orders AS (\n"
+            + "        SELECT  o.customer_id\n"
+            + "                , Count( DISTINCT o.order_id ) AS total_orders\n"
+            + "                , Sum( o.quantity * p.price ) AS total_spent\n"
+            + "                , Min( o.order_date ) AS first_order_date\n"
+            + "                , Max( o.order_date ) AS last_order_date\n"
+            + "                , array_agg( DISTINCT p.category ) AS purchased_categories\n"
+            + "        FROM starbake.orders o\n"
+            + "            JOIN starbake.products p\n"
+            + "                ON o.product_id = p.product_id\n"
+            + "        GROUP BY o.customer_id )\n"
+            + "SELECT  co.customer_id\n"
+            + "        , Concat( c.first_name, ' ', c.last_name ) AS customer_name\n"
+            + "        , c.email\n"
+            + "        , co.total_orders\n"
+            + "        , co.total_spent\n"
+            + "        , co.first_order_date\n"
+            + "        , co.last_order_date\n"
+            + "        , co.purchased_categories\n"
+            + "        , Datediff( 'day', co.first_order_date, co.last_order_date ) AS days_since_first_order\n"
+            + "FROM starbake.customers c\n"
+            + "    LEFT JOIN customer_orders co\n"
+            + "        ON c.id = co.customer_id\n"
+            + "ORDER BY co.total_spent DESC NULLS LAST\n"
+            + ";";
+
+    List<Attribute> expected = List.of(
+            new Attribute("customer_id", "long")
+            , new Attribute("customer_name", "string", AttributeStatus.UNCHANGED)
+            , new Attribute("email", "string", AttributeStatus.UNCHANGED)
+            , new Attribute("total_orders", "long", AttributeStatus.UNCHANGED)
+            , new Attribute("total_spent", "double", AttributeStatus.UNCHANGED)
+            , new Attribute("first_order_date", "date", AttributeStatus.UNCHANGED)
+            , new Attribute("last_order_date", "date", AttributeStatus.UNCHANGED)
+            , new Attribute("purchased_categories", "string", true, null, AttributeStatus.UNCHANGED)
+            , new Attribute("days_since_first_order", "long", AttributeStatus.UNCHANGED)
+    );
+    //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(getStarlakeSchemas());
+    List<Attribute> actual = diff.getDiff(sqlStr, "starbake_analytics.customer_purchase_history");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void testIssue118() throws JSQLParserException, SQLException {
+    //@formatter:off
+    String sqlStr =
+          "WITH order_details AS (\n" +
+                  "        SELECT  o.order_id\n" +
+                  "                , o.order_date\n" +
+                  "                , o.customer_id\n" +
+                  "                , Array_Agg( p.name || ' (' || o.quantity || ')' ) AS purchased_items\n" +
+                  "                , Sum( o.quantity * p.price ) AS total_order_value\n" +
+                  "                , p.cost\n" +
+                  "        FROM starbake.orders o\n" +
+                  "            JOIN starbake.products p\n" +
+                  "                ON o.product_id = p.product_id\n" +
+                  "        GROUP BY    o.order_id\n" +
+                  "                    , o.order_date\n" +
+                  "                    , o.customer_id\n" +
+                  "                    , cost )\n" +
+                  "SELECT  order_id\n" +
+                  "        , order_date\n" +
+                  "        , customer_id\n" +
+                  "        , purchased_items\n" +
+                  "        , total_order_value\n" +
+                  "        , cost\n" +
+                  "FROM order_details\n" +
+                  "ORDER BY order_id\n" +
+                  ";";
+
+    List<Attribute> expected = List.of(
+            new Attribute("order_id", "long", false, null, AttributeStatus.ADDED)
+            , new Attribute("order_date", "date", false, null, AttributeStatus.ADDED)
+            , new Attribute("customer_id", "long")
+            , new Attribute("purchased_items", "string", true, null, AttributeStatus.ADDED )
+            , new Attribute("total_order_value", "double", false, null, AttributeStatus.ADDED)
+            , new Attribute("cost", "double", false, null, AttributeStatus.ADDED)
+
+            , new Attribute("customer_name", "string", false, null, AttributeStatus.REMOVED)
+            , new Attribute("email", "string", false, null, AttributeStatus.REMOVED)
+            , new Attribute("total_orders", "long", false, null, AttributeStatus.REMOVED)
+            , new Attribute("total_spent", "double", false, null, AttributeStatus.REMOVED)
+            , new Attribute("first_order_date", "date", false, null, AttributeStatus.REMOVED)
+            , new Attribute("last_order_date", "date", false, null, AttributeStatus.REMOVED)
+            , new Attribute("purchased_categories", "string", true, null, AttributeStatus.REMOVED)
+            , new Attribute("days_since_first_order", "long", false, null, AttributeStatus.REMOVED)
+
+    );
+    //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(getStarlakeSchemas());
+    List<Attribute> actual = diff.getDiff(sqlStr, "starbake_analytics.customer_purchase_history");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void testIssue116() throws JSQLParserException, SQLException {
+    //@formatter:off
+    String sqlStr =
+            "select * from audit.audit";
+
+    List<Attribute> expected = List.of(
+            new Attribute("JOBID", "string")
+            , new Attribute("PATHS", "string", AttributeStatus.UNCHANGED)
+            , new Attribute("SCHEMA", "string", AttributeStatus.UNCHANGED)
+            , new Attribute("SUCCESS", "boolean", AttributeStatus.UNCHANGED)
+            , new Attribute("COUNT", "long", AttributeStatus.UNCHANGED)
+            , new Attribute("COUNTACCEPTED", "long", AttributeStatus.UNCHANGED)
+            , new Attribute("COUNTREJECTED", "long", AttributeStatus.UNCHANGED)
+            , new Attribute("TIMESTAMP", "timestamp", AttributeStatus.UNCHANGED)
+            , new Attribute("DURATION", "long", AttributeStatus.UNCHANGED)
+            , new Attribute("MESSAGE", "string", AttributeStatus.UNCHANGED)
+            , new Attribute("STEP", "string", AttributeStatus.UNCHANGED)
+            , new Attribute("DATABASE", "string", AttributeStatus.UNCHANGED)
+            , new Attribute("TENANT", "string", AttributeStatus.UNCHANGED)
+    );
+    //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(getStarlakeSchemas());
+    List<Attribute> actual = diff.getDiff(sqlStr, "audit.audit");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void testArrays() throws JSQLParserException, SQLException {
+    //@formatter:off
+    DBSchema schema99 = new DBSchema(
+            ""
+            , "starbake"
+            , "array_test"
+            , new Attribute("keys", "string", true, null, AttributeStatus.ADDED)
+            , new Attribute(
+                    "values1"
+                    , "struct"
+                    , false
+                    , List.of(
+                      new Attribute("field1", "string")
+                      , new Attribute("field2", "double"))
+                  , AttributeStatus.ADDED)
+            , new Attribute(
+                  "values2"
+                  , "struct"
+                  , false
+                  , List.of(
+                      new Attribute("field1", "string")
+                      , new Attribute("field2", "double"))
+                  , AttributeStatus.ADDED)
+            );
+
+    String sqlStr =
+            "select * from starbake.array_test";
+
+    List<Attribute> expected = List.of(
+            new Attribute(
+                    "keys"
+                    , "string"
+                    , true
+                    , null
+                    , AttributeStatus.UNCHANGED )
+            , new Attribute(
+                    "values1"
+                    , "struct"
+                    , false
+                    , List.of(
+                        new Attribute("field1", "string")
+                        , new Attribute("field2", "double"))
+                    ,  AttributeStatus.UNCHANGED)
+            , new Attribute(
+                    "values2"
+                    , "struct"
+                    , false
+                    , List.of(
+                        new Attribute("field1", "string")
+                        , new Attribute("field2", "double"))
+                    ,  AttributeStatus.UNCHANGED)
+    );
+    //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(schema99);
+    List<Attribute> actual = diff.getDiff(sqlStr, "starbake.array_test");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void testArrayScalarAddedRemoved() throws Exception {
+    DBSchema schema = new DBSchema("", "db", "table",
+        new Attribute("id", "string", true, null, AttributeStatus.ADDED));
+
+    String sqlStr = "select array_construct('a', 'b') as names from db.table";
+
+    List<Attribute> expected =
+        List.of(new Attribute("id", "string", true, null, AttributeStatus.REMOVED),
+            new Attribute("names", "string", true, null, AttributeStatus.ADDED));
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(schema);
+    List<Attribute> actual = diff.getDiff(sqlStr, "db.table");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void testStructFieldAddedRemoved() throws Exception {
+    DBSchema schema = new DBSchema("", "db", "table",
+        new Attribute("user", "struct", false,
+            List.of(new Attribute("id", "string"), new Attribute("name", "string")),
+            AttributeStatus.ADDED));
+
+    String sqlStr = "select object_construct(\n" + "    'id', 'abc-912'::STRING,\n"
+        + "    'age', 42::INT\n" + ") as user_info";
+
+    List<Attribute> expected = List.of(
+        new Attribute("user", "struct", false,
+            List.of(new Attribute("id", "string"), new Attribute("name", "string")),
+            AttributeStatus.REMOVED),
+        new Attribute("user_info", "struct", false,
+            List.of(new Attribute("id", "string"), new Attribute("age", "integer")),
+            AttributeStatus.ADDED));
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(schema);
+    List<Attribute> actual = diff.getDiff(sqlStr, "db.table");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void testStructFieldAttributeChanges() throws Exception {
+    DBSchema schema = new DBSchema("", "db", "table",
+        new Attribute("user", "struct", false,
+            List.of(new Attribute("id", "string"), new Attribute("name", "string")),
+            AttributeStatus.ADDED));
+
+    String sqlStr = "select object_construct(\n" + "    'id', 'abc-912'::STRING,\n"
+        + "    'age', 42::INT\n" + ") as user";
+
+    List<Attribute> expected = List.of(new Attribute("user", "struct", false,
+        List.of(new Attribute("id", "string"), new Attribute("age", "integer")),
+        AttributeStatus.UNCHANGED));
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(schema);
+    List<Attribute> actual = diff.getDiff(sqlStr, "db.table");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+
+  @Test
+  void testIssue120AggregateFunctions() throws SQLException, JSQLParserException {
+
+    List<DBSchema> schemas = List.of(
+        new DBSchema("", "starbake", "orders", new Attribute("customer_id", "long"),
+            new Attribute("order_id", "long"), new Attribute("status", "string"),
+            new Attribute("timestamp", "iso_date_time")),
+        new DBSchema("", "starbake", "order_lines", new Attribute("order_id", "long"),
+            new Attribute("product_id", "long"), new Attribute("quantity", "int"),
+            new Attribute("sale_price", "double")));
+
+    String sqlStr = "select orders.order_id, sum(quantity) as qty\n"
+        + "from starbake.orders, starbake.order_lines\n"
+        + "where orders.order_id = order_lines.order_id\n" + "group by 1";
+
+
+    List<Attribute> expected =
+        List.of(new Attribute("order_id", "long", false, null, AttributeStatus.ADDED),
+            new Attribute("qty", "long", false, null, AttributeStatus.ADDED));
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(schemas);
+    List<Attribute> actual = diff.getDiff(sqlStr, "audit.audit_kpi");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void testIssueQuoting() throws JSQLParserException, SQLException {
+    //@formatter:off
+    String sqlStr =
+            "select *, 1 as two  from `starbake`.`customers`";
+
+    List<Attribute> expected = List.of(
+            new Attribute("id", "integer", false, null, AttributeStatus.MODIFIED)
+            , new Attribute("first_name", "string")
+            , new Attribute("last_name", "string")
+            , new Attribute("email", "string")
+            , new Attribute("join_date", "date")
+            , new Attribute("two", "integer", false, null, AttributeStatus.ADDED)
+    );
+    //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(getStarlakeSchemas());
+    List<Attribute> actual = diff.getDiff(sqlStr, "starbake.customers");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void testIssue129() throws JSQLParserException, SQLException {
+    //@formatter:off
+    List<DBSchema> schemas = List.of(
+            new DBSchema(
+                    ""
+                    , "star1"
+                    , "table1"
+                    , new Attribute("cnt", "long")
+            )
+            , new DBSchema(
+                    ""
+                    , "IT"
+                    , "users"
+                    , new Attribute(
+                            "details"
+                            , "struct"
+                            , false
+                            ,  List.of(new Attribute("id", "string"), new Attribute("name", "string"))
+                            , AttributeStatus.ADDED)
+                    , new Attribute("name", "string")
+
+            )
+    );
+
+    String sqlStr =
+            "select count(*) as cnt from IT.users";
+
+    List<Attribute> expected = List.of(
+            new Attribute("cnt", "long")
+    );
+    //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(schemas);
+    List<Attribute> actual = diff.getDiff(sqlStr, "star1.table1");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
+  @Test
+  void testIssueArraySize() throws JSQLParserException, SQLException {
+    //@formatter:off
+        String sqlStr =
+                "-- Starbake Overall KPIs\n" +
+                        "WITH customer_metrics AS (\n" +
+                        "        SELECT  Count( DISTINCT customer_id ) AS total_customers\n" +
+                        "                , Avg( total_orders ) AS avg_orders_per_customer\n" +
+                        "                , Avg( total_spent ) AS avg_spent_per_customer\n" +
+                        "                , Min( first_order_date ) AS earliest_order_date\n" +
+                        "                , Max( last_order_date ) AS latest_order_date\n" +
+                        "                , Avg( days_since_first_order ) AS avg_customer_lifetime_days\n" +
+                        "                , Avg( Array_Length( purchased_categories ) ) AS avg_categories_per_customer\n" +
+                        "        FROM starbake_analytics.customer_purchase_history )\n" +
+                        "    , order_metrics AS (\n" +
+                        "        SELECT  Count( DISTINCT order_id ) AS total_orders\n" +
+                        "                , Sum( total_order_value ) AS total_revenue\n" +
+                        "                , Avg( total_order_value ) AS avg_order_value\n" +
+                        "                , Count( DISTINCT customer_id ) AS customers_with_orders\n" +
+                        "        FROM starbake_analytics.order_items_analysis )\n" +
+                        "SELECT  cm.total_customers\n" +
+                        "        , om.total_orders\n" +
+                        "        , om.total_revenue\n" +
+                        "        , om.avg_order_value\n" +
+                        "        , cm.avg_orders_per_customer\n" +
+                        "        , cm.avg_spent_per_customer\n" +
+                        "        , cm.earliest_order_date\n" +
+                        "        , cm.latest_order_date\n" +
+                        "        , cm.avg_customer_lifetime_days\n" +
+                        "        , cm.avg_categories_per_customer\n" +
+                        "        , om.customers_with_orders::FLOAT\n" +
+                        "             / cm.total_customers AS customer_order_rate\n" +
+                        "        , om.total_revenue\n" +
+                        "             / Nullif(  Cast( cm.latest_order_date AS DATE ) -  Cast( cm.earliest_order_date AS DATE ), 0 ) AS daily_revenue\n" +
+                        "        , om.total_orders::FLOAT\n" +
+                        "             / Nullif(  Cast( cm.latest_order_date AS DATE ) -  Cast( cm.earliest_order_date AS DATE ), 0 ) AS daily_order_rate\n" +
+                        "        , om.total_revenue\n" +
+                        "             / Nullif( Datediff( 'day', cm.earliest_order_date, cm.latest_order_date ), 0 ) AS daily_revenue1\n" +
+                        "        , om.total_orders::FLOAT\n" +
+                        "             / Nullif( Datediff( 'day', cm.earliest_order_date, cm.latest_order_date ), 0 ) AS daily_order_rate1\n" +
+                        "FROM customer_metrics cm\n" +
+                        "    CROSS JOIN order_metrics om\n" +
+                        ";";
+
+        List<Attribute> expected = List.of(
+                new Attribute("total_customers", "long", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("total_orders", "long", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("total_revenue", "double", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("avg_order_value", "double", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("avg_orders_per_customer", "double", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("avg_spent_per_customer", "double", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("earliest_order_date", "date", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("latest_order_date", "date", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("avg_customer_lifetime_days", "double", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("avg_categories_per_customer", "double", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("customer_order_rate", "double", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("daily_revenue", "double", false, null, AttributeStatus.UNCHANGED)
+                , new Attribute("daily_order_rate", "double", false, null, AttributeStatus.UNCHANGED)
+
+                , new Attribute("daily_revenue1", "double", false, null, AttributeStatus.ADDED)
+                , new Attribute("daily_order_rate1", "double", false, null, AttributeStatus.ADDED)
+        );
+        //@formatter:on
+
+    JSQLSchemaDiff diff = new JSQLSchemaDiff(getStarlakeSchemas());
+    List<Attribute> actual = diff.getDiff(sqlStr, "starbake_kpis.overall_kpis");
+
+    Assertions.assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+  }
+}

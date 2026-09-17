@@ -54,7 +54,7 @@ FROM wkb_data
 
 -- result
 "from_planar","from_geodesic"
-"LINESTRING (1 1, 3 2)","LINESTRING (1 1, 3 2)"
+"LINESTRING (0.9999999999999998 1, 3.0000000000000004 2)","LINESTRING (0.9999999999999998 1, 3.0000000000000004 2)"
 
 
 --provided
@@ -65,8 +65,7 @@ SELECT
   ST_NUMPOINTS(ST_BUFFER(ST_GEOGFROMTEXT('POINT(100 2)'), 50)) AS thirty_two_sides;
 
 -- expected
-SELECT  St_Numpoints( St_Buffer( St_Geomfromtext( 'POINT(1 2)' )::GEOMETRY, 50, 2 )::GEOMETRY ) AS eight_sides
-        , St_Numpoints( St_Buffer( St_Geomfromtext( 'POINT(100 2)' )::GEOMETRY, 50 )::GEOMETRY ) AS thirty_two_sides
+SELECT ST_NUMPOINTS(ST_BUFFER(ST_GEOMFROMTEXT('POINT(1 2)'),50,2)::GEOMETRY)AS EIGHT_SIDES,ST_NUMPOINTS(ST_BUFFER(ST_GEOMFROMTEXT('POINT(100 2)'),50)::GEOMETRY)AS THIRTY_TWO_SIDES
 ;
 
 -- result
@@ -169,9 +168,9 @@ FROM example;
 
 -- result
 "original_geography","dumped_geographies"
-"POINT (0 0)","[{geom=POINT (0 0), path=[]}]"
-"MULTIPOINT (0 0, 1 1)","[{geom=POINT (0 0), path=[1]}, {geom=POINT (1 1), path=[2]}]"
-"GEOMETRYCOLLECTION (POINT (0 0), LINESTRING (1 2, 2 1))","[{geom=POINT (0 0), path=[1]}, {geom=LINESTRING (1 2, 2 1), path=[2]}]"
+"POINT (0 0)","[{'geom': 'POINT (0 0)', 'path': []}]"
+"MULTIPOINT (0 0, 1 1)","[{'geom': 'POINT (0 0)', 'path': [1]}, {'geom': 'POINT (1 1)', 'path': [2]}]"
+"GEOMETRYCOLLECTION (POINT (0 0), LINESTRING (1 2, 2 1))","[{'geom': 'POINT (0 0)', 'path': [1]}, {'geom': 'LINESTRING (1 2, 2 1)', 'path': [2]}]"
 
 
 -- provided

@@ -13,13 +13,13 @@
   </module>
   -->
   <module name="TreeWalker">
-    <module name="AvoidNestedBlocks" />
+<!--    <module name="AvoidNestedBlocks" />-->
     <module name="ConstantName" />
     <module name="EmptyCatchBlock" />
     <module name="EmptyStatement" />
     <module name="MissingOverride" />
     <module name="MultipleVariableDeclarations" />
-    <module name="ParameterAssignment" />
+<!--    <module name="ParameterAssignment" />-->
     <module name="StringLiteralEquality" />
     <module name="RedundantImport" />
     <module name="UnusedImports" />

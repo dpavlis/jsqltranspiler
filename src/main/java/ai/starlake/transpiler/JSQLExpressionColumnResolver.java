@@ -1,13 +1,10 @@
 /**
  * Starlake.AI JSQLTranspiler is a SQL to DuckDB Transpiler.
- * Copyright (C) 2024 Starlake.AI <hayssam.saleh@starlake.ai>
- *
+ * Copyright (C) 2025 Starlake.AI (hayssam.saleh@starlake.ai)
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,16 +17,23 @@ import ai.starlake.transpiler.schema.CaseInsensitiveLinkedHashMap;
 import ai.starlake.transpiler.schema.JdbcColumn;
 import ai.starlake.transpiler.schema.JdbcMetaData;
 import ai.starlake.transpiler.schema.JdbcResultSetMetaData;
+import ai.starlake.transpiler.schema.JdbcTable;
 import net.sf.jsqlparser.expression.Alias;
+import net.sf.jsqlparser.expression.AnalyticExpression;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.ExpressionVisitorAdapter;
 import net.sf.jsqlparser.expression.Function;
+import net.sf.jsqlparser.expression.JsonAggregateFunction;
+import net.sf.jsqlparser.expression.JsonFunction;
+import net.sf.jsqlparser.expression.JsonFunctionExpression;
+import net.sf.jsqlparser.expression.TranscodingFunction;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.select.AllColumns;
 import net.sf.jsqlparser.statement.select.AllTableColumns;
 import net.sf.jsqlparser.statement.select.LateralSubSelect;
+import net.sf.jsqlparser.statement.select.OrderByElement;
 import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
@@ -55,12 +59,13 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
   public final static Logger LOGGER =
       Logger.getLogger(JSQLExpressionColumnResolver.class.getName());
   private final JSQLColumResolver columResolver;
+  private final List<Expression> functions = new ArrayList<>();
 
   public JSQLExpressionColumnResolver(JSQLColumResolver columResolver) {
     this.columResolver = columResolver;
   }
 
-  private static JdbcColumn getJdbcColumn(JdbcMetaData metaData, Column column) {
+  public static JdbcColumn getJdbcColumn(JdbcMetaData metaData, Column column) {
     JdbcColumn jdbcColumn = null;
     String columnTableName = null;
     String columnSchemaName = null;
@@ -84,9 +89,30 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
     if (columnTableName != null) {
       // column has a table name prefix, which could be the actual table name or the table's
       // alias
-      String actualColumnTableName = fromTables.containsKey(columnTableName)
-          ? fromTables.get(columnTableName).getUnquotedName()
-          : null;
+      String actualColumnTableName = null;
+      if (!fromTables.containsKey(columnTableName)
+          && metaData.getOuterFromTables().containsKey(columnTableName)) {
+        // A correlated reference: the name is not one of this query's tables but is
+        // one of the enclosing query's. Unqualified columns never reach here, so the
+        // inner query keeps deciding what a bare column name means.
+        fromTables = metaData.getOuterFromTables();
+      }
+      if (!fromTables.containsKey(columnTableName)) {
+        switch (metaData.getErrorMode()) {
+          case STRICT:
+            throw new TableNotDeclaredException(columnTableName, fromTables.keySet());
+          case LENIENT:
+            LOGGER.warning("Table " + columnTableName + " has not been declared in "
+                + Arrays.deepToString(fromTables.keySet().toArray(new String[0])));
+            break;
+          case IGNORE:
+            LOGGER.fine("Table " + columnTableName + " has not been declared in "
+                + Arrays.deepToString(fromTables.keySet().toArray(new String[0])));
+            break;
+        }
+      } else {
+        actualColumnTableName = fromTables.get(columnTableName).getUnquotedName();
+      }
 
       String actualColumnSchemaName = fromTables.containsKey(columnTableName)
           ? fromTables.get(columnTableName).getUnquotedSchemaName()
@@ -96,11 +122,19 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
           ? fromTables.get(columnTableName).getUnquotedDatabaseName()
           : columnCatalogName;
 
+      if (columnTableName.equalsIgnoreCase(actualColumnTableName)) {
+        JdbcTable jdbcTable = metaData.getTable(actualColumnCatalogName, actualColumnSchemaName,
+            actualColumnTableName);
+        if (jdbcTable != null && !jdbcTable.tableType.equals("VIRTUAL TABLE")) {
+          table.setResolvedTable(fromTables.get(columnTableName));
+        }
+      }
+
       jdbcColumn = metaData.getColumn(actualColumnCatalogName, actualColumnSchemaName,
           actualColumnTableName, column.getUnquotedColumnName());
 
     } else {
-      // column has no table name prefix and we have to lookup in all tables of the scope
+      // column has no table name prefix, and we have to lookup in all tables of the scope
       for (Table t : fromTables.values()) {
         String columnName = column.getUnquotedColumnName();
         String tableName = t.getUnquotedName();
@@ -118,7 +152,7 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
   }
 
   @Override
-  protected <S> List<JdbcColumn> visitExpression(Expression expression, S context) {
+  protected <S> List<JdbcColumn> applyExpression(Expression expression, S context) {
     JdbcColumn col = new JdbcColumn(expression.toString().replaceAll("[()]", ""), expression);
     return List.of(col);
   }
@@ -135,13 +169,72 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
 
   @Override
   public <S> List<JdbcColumn> visit(Function function, S context) {
+    functions.add(function);
+
     JdbcColumn col = new JdbcColumn(function.getName(), function);
-    for (Expression expression : function.getParameters()) {
-      List<JdbcColumn> subColumns = expression.accept(this, context);
+    if (function.getParameters() != null) {
+      for (Expression expression : function.getParameters()) {
+        List<JdbcColumn> subColumns = expression.accept(this, context);
+        col.add(subColumns);
+      }
+    }
+    return List.of(col);
+  }
+
+  @Override
+  public <S> List<JdbcColumn> visit(TranscodingFunction function, S context) {
+    functions.add(function);
+    return function.getExpression().accept(this, context);
+  }
+
+  @Override
+  public <S> List<JdbcColumn> visit(JsonAggregateFunction function, S context) {
+    functions.add(function);
+    return function.getExpression().accept(this, context);
+  }
+
+  @Override
+  public <S> List<JdbcColumn> visit(JsonFunction function, S context) {
+    functions.add(function);
+    JdbcColumn col = new JdbcColumn(function.getType().name(), function);
+
+    for (JsonFunctionExpression expression : function.getExpressions()) {
+      List<JdbcColumn> subColumns = expression.getExpression().accept(this, context);
       col.add(subColumns);
     }
     return List.of(col);
   }
+
+  @Override
+  public <S> List<JdbcColumn> visit(AnalyticExpression function, S context) {
+    functions.add(function);
+    JdbcColumn col = new JdbcColumn(function.getName(), function);
+
+    // Argless analytics (row_number(), rank(), dense_rank(), percent_rank(), cume_dist())
+    // have a null inner expression; only argful ones (sum(x) OVER ..., lag(x) OVER ...) carry one.
+    if (function.getExpression() != null) {
+      col.add(function.getExpression().accept(this, context));
+    }
+
+    ExpressionList<?> partitionExpressions = function.getPartitionExpressionList();
+    if (partitionExpressions != null) {
+      for (Expression e : partitionExpressions) {
+        col.add(e.accept(this, context));
+      }
+    }
+
+    List<OrderByElement> orderByElements = function.getOrderByElements();
+    if (orderByElements != null) {
+      for (OrderByElement e : orderByElements) {
+        if (e.getExpression() != null) {
+          col.add(e.getExpression().accept(this, context));
+        }
+      }
+    }
+
+    return List.of(col);
+  }
+
 
   @SuppressWarnings({"PMD.CyclomaticComplexity"})
   @Override
@@ -166,18 +259,34 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       }
 
       HashMap<JdbcColumn, Alias> replaceMap = new HashMap<>();
-      List<SelectItem<Column>> replaceExpressions = allTableColumns.getReplaceExpressions();
+      List<SelectItem<?>> replaceExpressions = allTableColumns.getReplaceExpressions();
       if (replaceExpressions != null) {
-        for (SelectItem<Column> c : replaceExpressions) {
-          JdbcColumn jdbcColumn = getJdbcColumn(metaData,
-              c.getExpression().getTable() == null ? c.getExpression().withTable(table)
-                  : c.getExpression());
-          if (jdbcColumn != null) {
-            replaceMap.put(jdbcColumn, c.getAlias());
+        for (SelectItem<?> c : replaceExpressions) {
+          if (c.getExpression() instanceof Column) {
+            Column column = (Column) c.getExpression();
+
+            JdbcColumn jdbcColumn = getJdbcColumn(metaData,
+                column.getTable() == null ? column.withTable(table) : column);
+            if (jdbcColumn != null) {
+              replaceMap.put(jdbcColumn, c.getAlias());
+            } else {
+              LOGGER.warning("Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+            }
+
           } else {
-            LOGGER.warning(
-                "Could not resolve REPLACE Column " + c.getExpression().getFullyQualifiedName());
+            c.getExpression().accept(this, null);
           }
+          //
+          //
+          // JdbcColumn jdbcColumn = c getJdbcColumn(metaData,
+          // c.getExpression().getTable() == null ? c.getExpression().withTable(table)
+          // : c.getExpression());
+          // if (jdbcColumn != null) {
+          // replaceMap.put(jdbcColumn, c.getAlias());
+          // } else {
+          // LOGGER.warning(
+          // "Could not resolve REPLACE Column " + c.getExpression().getFullyQualifiedName());
+          // }
         }
       }
 
@@ -266,27 +375,33 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       }
 
       HashMap<JdbcColumn, Alias> replaceMap = new HashMap<>();
-      List<SelectItem<Column>> replaceExpressions = allColumns.getReplaceExpressions();
+      List<SelectItem<?>> replaceExpressions = allColumns.getReplaceExpressions();
       if (replaceExpressions != null) {
-        for (SelectItem<Column> c : replaceExpressions) {
-          if (c.getExpression().getTable() != null) {
-            JdbcColumn jdbcColumn = getJdbcColumn(metaData, c.getExpression());
-            if (jdbcColumn != null) {
-              replaceMap.put(jdbcColumn, c.getAlias());
-            } else {
-              LOGGER.warning(
-                  "Could not resolve REPLACE Column " + c.getExpression().getFullyQualifiedName());
-            }
-          } else {
-            for (Table t : metaData.getFromTables().values()) {
-              JdbcColumn jdbcColumn = getJdbcColumn(metaData, c.getExpression().withTable(t));
+        for (SelectItem<?> c : replaceExpressions) {
+          if (c.getExpression() instanceof Column) {
+            Column column = (Column) c.getExpression();
+
+            if (column.getTable() != null) {
+              JdbcColumn jdbcColumn = getJdbcColumn(metaData, column);
               if (jdbcColumn != null) {
                 replaceMap.put(jdbcColumn, c.getAlias());
               } else {
-                LOGGER.warning("Could not resolve REPLACE Column "
-                    + c.getExpression().getFullyQualifiedName());
+                LOGGER
+                    .warning("Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+              }
+            } else {
+              for (Table t : metaData.getFromTables().values()) {
+                JdbcColumn jdbcColumn = getJdbcColumn(metaData, column.withTable(t));
+                if (jdbcColumn != null) {
+                  replaceMap.put(jdbcColumn, c.getAlias());
+                } else {
+                  LOGGER.warning(
+                      "Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+                }
               }
             }
+          } else {
+            c.getExpression().accept(this, null);
           }
         }
       }
@@ -296,8 +411,18 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
         String tableCatalogName = t.getUnquotedDatabaseName();
 
         for (JdbcColumn jdbcColumn : metaData.getTableColumns(tableCatalogName, tableSchemaName,
-            t.getName(), null)) {
+            t.getUnquotedName(), null)) {
           boolean inserted = false;
+          jdbcColumn.tableSchema = null;
+          jdbcColumn.tableCatalog = null;
+          jdbcColumn.tableName = t.getUnquotedName();
+
+          // @todo: this is the right thing but seems to be the wrong location
+          // please refactor this
+          if (jdbcColumn.getExpression() instanceof Column && t.getResolvedTable() != null) {
+            ((Column) jdbcColumn.getExpression()).setResolvedTable(t);
+          }
+
           if (!excepts.contains(jdbcColumn)) {
 
             if (metaData.getNaturalJoinedTables().containsValue(t)) {
@@ -351,8 +476,8 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       if (jdbcColumn == null) {
         switch (columResolver.getErrorMode()) {
           case STRICT:
-            throw new RuntimeException("Column " + column + " not found in tables "
-                + Arrays.deepToString(metaData.getFromTables().values().toArray()));
+            throw new ColumnNotFoundException(column.getFullyQualifiedName(),
+                metaData.getFromTables().keySet());
           case LENIENT:
             boolean found = false;
 
@@ -420,29 +545,41 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
   @Override
   public <S> List<JdbcColumn> visit(ParenthesedSelect select, S context) {
     ArrayList<JdbcColumn> columns = new ArrayList<>();
+    Object scope = nestedScope(context);
     if (select.getWithItemsList() != null) {
       for (WithItem<?> item : select.getWithItemsList()) {
-        columns.addAll(item.accept(columResolver, context).getColumns());
+        columns.addAll(item.accept(columResolver, scope).getColumns());
       }
     }
     columns.addAll(
-        select.accept((SelectVisitor<JdbcResultSetMetaData>) columResolver, context).getColumns());
+        select.accept((SelectVisitor<JdbcResultSetMetaData>) columResolver, scope).getColumns());
     return columns;
+  }
+
+  /**
+   * The scope a sub query in an expression is resolved in: its own FROM clause, plus the tables of
+   * the enclosing query as an outer scope a correlated reference may name. A context that is not
+   * metadata is handed on unchanged.
+   */
+  private static Object nestedScope(Object context) {
+    return context instanceof JdbcMetaData ? JdbcMetaData.copyOfNested((JdbcMetaData) context)
+        : context;
   }
 
   @Override
   public <S> List<JdbcColumn> visit(Select select, S context) {
     ArrayList<JdbcColumn> columns = new ArrayList<>();
+    Object scope = nestedScope(context);
     if (select.getWithItemsList() != null) {
       for (WithItem<?> item : select.getWithItemsList()) {
-        for (JdbcColumn col : item.accept(columResolver, context).getColumns()) {
+        for (JdbcColumn col : item.accept(columResolver, scope).getColumns()) {
           columns.add(col.setExpression(select));
         }
       }
     }
 
-    for (JdbcColumn col : select
-        .accept((SelectVisitor<JdbcResultSetMetaData>) columResolver, context).getColumns()) {
+    for (JdbcColumn col : select.accept((SelectVisitor<JdbcResultSetMetaData>) columResolver, scope)
+        .getColumns()) {
       columns.add(col.setExpression(select));
     }
 
@@ -453,9 +590,8 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
   public <S> List<JdbcColumn> visit(PlainSelect plainSelect, S context) {
     ArrayList<JdbcColumn> columns = new ArrayList<>();
     if (context instanceof JdbcMetaData) {
-      JdbcResultSetMetaData resultSetMetaData =
-          plainSelect.accept((SelectVisitor<JdbcResultSetMetaData>) columResolver,
-              JdbcMetaData.copyOf((JdbcMetaData) context));
+      JdbcResultSetMetaData resultSetMetaData = plainSelect
+          .accept((SelectVisitor<JdbcResultSetMetaData>) columResolver, nestedScope(context));
       columns.addAll(resultSetMetaData.getColumns());
     }
     return columns;
@@ -465,9 +601,8 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
   public <S> List<JdbcColumn> visit(SetOperationList setOperationList, S context) {
     ArrayList<JdbcColumn> columns = new ArrayList<>();
     if (context instanceof JdbcMetaData) {
-      JdbcResultSetMetaData resultSetMetaData =
-          setOperationList.accept((SelectVisitor<JdbcResultSetMetaData>) columResolver,
-              JdbcMetaData.copyOf((JdbcMetaData) context));
+      JdbcResultSetMetaData resultSetMetaData = setOperationList
+          .accept((SelectVisitor<JdbcResultSetMetaData>) columResolver, nestedScope(context));
       columns.addAll(resultSetMetaData.getColumns());
     }
     return columns;
@@ -479,6 +614,9 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
     if (context instanceof JdbcMetaData) {
       JdbcResultSetMetaData resultSetMetaData =
           withItem.accept(columResolver, JdbcMetaData.copyOf((JdbcMetaData) context));
+      for (JdbcColumn c : resultSetMetaData.getColumns()) {
+        c.tableName = withItem.getAliasName();
+      }
       columns.addAll(resultSetMetaData.getColumns());
     }
     return columns;
@@ -518,5 +656,13 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       columns.addAll(resultSetMetaData.getColumns());
     }
     return columns;
+  }
+
+  public void clearFunctions() {
+    functions.clear();
+  };
+
+  public List<Expression> getFunctions() {
+    return functions;
   }
 }
