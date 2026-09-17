@@ -633,6 +633,15 @@ public class JdbcTable implements Comparable<JdbcTable> {
       jdbcColumn.columnName = jdbcColumn.columnName + "_" + i;
 
     }
+
+    // A physical table column is its own scope column. This must be set here, before the column
+    // can be handed out and put into any hash based collection: scopeColumn takes part in
+    // JdbcColumn.hashCode(), so filling it in lazily later would silently change the hash of an
+    // already stored column (breaking e.g. the EXCEPT column lookup).
+    if (jdbcColumn.scopeColumn == null || jdbcColumn.scopeColumn.isEmpty()) {
+      jdbcColumn.scopeColumn = jdbcColumn.columnName;
+    }
+
     columns.put(jdbcColumn.columnName, jdbcColumn);
     return jdbcColumn;
   }

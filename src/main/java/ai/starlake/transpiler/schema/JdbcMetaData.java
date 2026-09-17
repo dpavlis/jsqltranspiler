@@ -666,9 +666,6 @@ public final class JdbcMetaData implements DatabaseMetaData {
           if (column.scopeTable == null || column.scopeTable.isEmpty()) {
             column.scopeTable = jdbcTable.tableName;
           }
-          if (column.scopeColumn == null || column.scopeColumn.isEmpty()) {
-            column.scopeColumn = column.columnName;
-          }
 
           jdbcColumns.add(column);
         }
@@ -688,9 +685,6 @@ public final class JdbcMetaData implements DatabaseMetaData {
           }
           if (column.scopeTable == null || column.scopeTable.isEmpty()) {
             column.scopeTable = jdbcTable.tableName;
-          }
-          if (column.scopeColumn == null || column.scopeColumn.isEmpty()) {
-            column.scopeColumn = column.columnName;
           }
           jdbcColumns.add(column);
         }
