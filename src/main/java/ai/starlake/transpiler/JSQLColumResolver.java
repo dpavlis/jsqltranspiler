@@ -40,6 +40,7 @@ import net.sf.jsqlparser.statement.select.LateralSubSelect;
 import net.sf.jsqlparser.statement.select.ParenthesedFromItem;
 import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PivotQuery;
+import net.sf.jsqlparser.statement.select.UnPivotQuery;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectItem;
@@ -586,6 +587,16 @@ public class JSQLColumResolver
   @Override
   public void visit(PivotQuery pivotQuery) {
     SelectVisitor.super.visit(pivotQuery);
+  }
+
+  @Override
+  public <S> JdbcResultSetMetaData visit(UnPivotQuery unPivotQuery, S s) {
+    return null;
+  }
+
+  @Override
+  public void visit(UnPivotQuery unPivotQuery) {
+    SelectVisitor.super.visit(unPivotQuery);
   }
 
   // for visiting Column Sub-Selects
