@@ -183,7 +183,7 @@ java {
     //withJavadocJar()
 
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(17))
     }
 }
 
@@ -522,7 +522,7 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.release = 21
+    options.release = 17
 }
 
 tasks.withType(Test).configureEach {

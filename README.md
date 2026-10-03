@@ -214,7 +214,7 @@ FROM (  SELECT  a.col3
 ```java
 JSQLReplacer replacer = new JSQLReplacer({{"a", "col1", "col2", "col3"}, {"b", "col1", "col2", "col3"}});
 replacer.replace(sqlStr, Map.of("a", "b", "b", "a"));
-```    
+```
 
 ```sql
 -- Output:
@@ -234,7 +234,7 @@ FROM (  SELECT  b.col3
 
 ## How to use
 
-Java 21 or newer is required. Build with a JDK 21 installation using `./gradlew build`.
+Java 17 or newer is required. Build with a JDK 17 installation using `./gradlew build`.
 
 ### Java Library
 

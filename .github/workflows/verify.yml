@@ -18,10 +18,10 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    - name: Set up JDK 21
+    - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
-        java-version: '21'
+        java-version: '17'
         distribution: 'temurin'
     # com.vanniktech.maven.publish resolves Sonatype creds at configuration time, so even
     # ./gradlew check fails on PRs without them. Stub empty values; verify never runs publish.
