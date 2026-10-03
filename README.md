@@ -234,6 +234,8 @@ FROM (  SELECT  b.col3
 
 ## How to use
 
+Java 21 or newer is required. Build with a JDK 21 installation using `./gradlew build`.
+
 ### Java Library
 
 Maven Artifact with Snapshot support:

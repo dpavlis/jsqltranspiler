@@ -61,7 +61,7 @@ Download
 
 .. tab:: A -- Binaries
 
-    .. list-table:: Java 11 Binaries
+    .. list-table:: Java 21 Binaries
         :widths: 35 50 15
         :header-rows: 1
 

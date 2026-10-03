@@ -182,12 +182,8 @@ java {
     withSourcesJar()
     //withJavadocJar()
 
-    sourceCompatibility = '11'
-    targetCompatibility = '11'
-
-    // needed for XML-Doclet to work (since Doclet changed again with Java 13)
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(17))
+        languageVersion.set(JavaLanguageVersion.of(21))
     }
 }
 
@@ -526,7 +522,7 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.release = 11
+    options.release = 21
 }
 
 tasks.withType(Test).configureEach {
