@@ -14,9 +14,12 @@
 package ai.starlake.transpiler;
 
 import net.sf.jsqlparser.expression.Alias;
+import net.sf.jsqlparser.expression.ColumnsTransformer;
+import net.sf.jsqlparser.expression.ColumnsTransformer.ColumnsTransformerType;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
+import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.piped.AggregatePipeOperator;
@@ -244,9 +247,8 @@ public class JSQLFromQueryTranspiler implements FromQueryVisitor<PlainSelect, Pl
           && plainSelect.getSelectItem(0).getExpression() instanceof AllColumns) {
         AllColumns allColumns = (AllColumns) plainSelect.getSelectItem(0).getExpression();
 
-        if ((allColumns.getReplaceExpressions() == null
-            || allColumns.getReplaceExpressions().isEmpty())
-            && (allColumns.getExceptColumns() == null || allColumns.getExceptColumns().isEmpty())) {
+        if ((allColumns.getTransformers() == null || getTransformer(allColumns, ColumnsTransformerType.REPLACE) == null || getTransformer(allColumns, ColumnsTransformerType.REPLACE).getReplaceItems() == null || getTransformer(allColumns, ColumnsTransformerType.REPLACE).getReplaceItems().isEmpty())
+            && (allColumns.getTransformers() == null || getTransformer(allColumns, ColumnsTransformerType.EXCEPT) == null || getTransformer(allColumns, ColumnsTransformerType.EXCEPT).getExceptColumns() == null || getTransformer(allColumns, ColumnsTransformerType.EXCEPT).getExceptColumns().isEmpty())) {
           plainSelect.setSelectItems(selectPipeOperator.getSelectItems());
         } else {
           return new PlainSelect().withFromItem(new ParenthesedSelect().withSelect(plainSelect))
@@ -306,28 +308,52 @@ public class JSQLFromQueryTranspiler implements FromQueryVisitor<PlainSelect, Pl
     return plainSelect;
   }
 
+  private static ColumnsTransformer getTransformer(AllColumns allColumns,
+      ColumnsTransformerType type) {
+    if (allColumns.getTransformers() == null) {
+      return null;
+    }
+    for (ColumnsTransformer transformer : allColumns.getTransformers()) {
+      if (transformer.getType() == type) {
+        return transformer;
+      }
+    }
+    return null;
+  }
+
   private static void setAllColumnsReplace(AllColumns allColumns, SetPipeOperator setPipeOperator) {
-    if (allColumns.getReplaceExpressions() == null
-        || allColumns.getReplaceExpressions().isEmpty()) {
-      allColumns.setReplaceExpressions(new ArrayList<>());
+    ColumnsTransformer transformer = getTransformer(allColumns, ColumnsTransformerType.REPLACE);
+    if (transformer == null) {
+      transformer = new ColumnsTransformer(ColumnsTransformerType.REPLACE);
+      allColumns.addTransformer(transformer);
+    }
+    List<SelectItem<?>> replaceItems = transformer.getReplaceItems();
+    if (replaceItems == null) {
+      replaceItems = new ArrayList<>();
+      transformer.setReplaceItems(replaceItems);
     }
 
     for (UpdateSet updateSet : setPipeOperator.getUpdateSets()) {
       for (int i = 0; i < updateSet.getColumns().size(); i++) {
         Column column = updateSet.getColumn(i);
         Expression value = updateSet.getValue(i);
-        allColumns.getReplaceExpressions()
-            .add(new SelectItem<>(value, new Alias(column.getColumnName(), true)));
+        replaceItems.add(new SelectItem<>(value, new Alias(column.getColumnName(), true)));
       }
     }
   }
 
   private static void setAllColumnsExcept(AllColumns allColumns, DropPipeOperator setPipeOperator) {
-    if (allColumns.getExceptColumns() == null || allColumns.getExceptColumns().isEmpty()) {
-      allColumns.setExceptKeyword("EXCEPT");
-      allColumns.setExceptColumns(new ExpressionList<>());
+    ColumnsTransformer transformer = getTransformer(allColumns, ColumnsTransformerType.EXCEPT);
+    if (transformer == null) {
+      transformer = new ColumnsTransformer(ColumnsTransformerType.EXCEPT);
+      allColumns.addTransformer(transformer);
     }
-    allColumns.getExceptColumns().addAll(setPipeOperator.getColumns());
+    ParenthesedExpressionList<Column> exceptColumns = transformer.getExceptColumns();
+    if (exceptColumns == null) {
+      exceptColumns = new ParenthesedExpressionList<>();
+      transformer.setExceptColumns(exceptColumns);
+    }
+    exceptColumns.addAll(setPipeOperator.getColumns());
   }
 
   @Override

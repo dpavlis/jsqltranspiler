@@ -18,6 +18,8 @@ import net.sf.jsqlparser.expression.AnalyticType;
 import net.sf.jsqlparser.expression.ArrayConstructor;
 import net.sf.jsqlparser.expression.BinaryExpression;
 import net.sf.jsqlparser.expression.CaseExpression;
+import net.sf.jsqlparser.expression.ColumnsTransformer;
+import net.sf.jsqlparser.expression.ColumnsTransformer.ColumnsTransformerType;
 import net.sf.jsqlparser.expression.CastExpression;
 import net.sf.jsqlparser.expression.DateTimeLiteralExpression;
 import net.sf.jsqlparser.expression.DateUnitExpression;
@@ -1560,15 +1562,15 @@ public class JSQLExpressionTranspiler extends ExpressionDeParser {
 
   @Override
   public <S> StringBuilder visit(AllColumns allColumns, S context) {
-    // if (allColumns.getReplaceExpressions() != null) {
-    // warning("DuckDB replaces Column's content instead Column's label, so unsupported.");
-    // allColumns.setReplaceExpressions(null);
-    // }
-
-    // DuckDB uses "EXCLUDE" instead "EXCEPT", because why not?!
-    super.visit(
-        allColumns.getExceptColumns() != null ? allColumns.setExceptKeyword("EXCLUDE") : allColumns,
-        null);
+    List<ColumnsTransformer> transformers = allColumns.getTransformers();
+    if (transformers != null) {
+      for (ColumnsTransformer transformer : transformers) {
+        if (transformer.getType() == ColumnsTransformerType.EXCEPT) {
+          transformer.setType(ColumnsTransformerType.EXCLUDE);
+        }
+      }
+    }
+    super.visit(allColumns, null);
     return builder;
   }
 

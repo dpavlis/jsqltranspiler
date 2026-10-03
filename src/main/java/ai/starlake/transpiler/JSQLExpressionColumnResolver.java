@@ -20,6 +20,8 @@ import ai.starlake.transpiler.schema.JdbcResultSetMetaData;
 import ai.starlake.transpiler.schema.JdbcTable;
 import net.sf.jsqlparser.expression.Alias;
 import net.sf.jsqlparser.expression.AnalyticExpression;
+import net.sf.jsqlparser.expression.ColumnsTransformer;
+import net.sf.jsqlparser.expression.ColumnsTransformer.ColumnsTransformerType;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.ExpressionVisitorAdapter;
 import net.sf.jsqlparser.expression.Function;
@@ -245,48 +247,46 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       Table table = allTableColumns.getTable();
 
       HashSet<JdbcColumn> excepts = new HashSet<>();
-      ExpressionList<Column> exceptColumns = allTableColumns.getExceptColumns();
-      if (exceptColumns != null) {
-        for (Column c : exceptColumns) {
-          JdbcColumn jdbcColumn =
-              getJdbcColumn(metaData, c.getTable() == null ? c.withTable(table) : c);
-          if (jdbcColumn != null) {
-            excepts.add(jdbcColumn);
-          } else {
-            LOGGER.warning("Could not resolve EXCEPT Column " + c.getFullyQualifiedName());
+      List<ColumnsTransformer> transformers = allTableColumns.getTransformers();
+      if (transformers != null) {
+        for (ColumnsTransformer transformer : transformers) {
+          if (transformer.getType() == ColumnsTransformerType.EXCEPT
+              && transformer.getExceptColumns() != null) {
+            for (Column c : transformer.getExceptColumns()) {
+              JdbcColumn jdbcColumn =
+                  getJdbcColumn(metaData, c.getTable() == null ? c.withTable(table) : c);
+              if (jdbcColumn != null) {
+                excepts.add(jdbcColumn);
+              } else {
+                LOGGER.warning("Could not resolve EXCEPT Column " + c.getFullyQualifiedName());
+              }
+            }
           }
         }
       }
 
       HashMap<JdbcColumn, Alias> replaceMap = new HashMap<>();
-      List<SelectItem<?>> replaceExpressions = allTableColumns.getReplaceExpressions();
-      if (replaceExpressions != null) {
-        for (SelectItem<?> c : replaceExpressions) {
-          if (c.getExpression() instanceof Column) {
-            Column column = (Column) c.getExpression();
+      if (transformers != null) {
+        for (ColumnsTransformer transformer : transformers) {
+          if (transformer.getType() == ColumnsTransformerType.REPLACE
+              && transformer.getReplaceItems() != null) {
+            for (SelectItem<?> c : transformer.getReplaceItems()) {
+              if (c.getExpression() instanceof Column) {
+                Column column = (Column) c.getExpression();
 
-            JdbcColumn jdbcColumn = getJdbcColumn(metaData,
-                column.getTable() == null ? column.withTable(table) : column);
-            if (jdbcColumn != null) {
-              replaceMap.put(jdbcColumn, c.getAlias());
-            } else {
-              LOGGER.warning("Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+                JdbcColumn jdbcColumn = getJdbcColumn(metaData,
+                    column.getTable() == null ? column.withTable(table) : column);
+                if (jdbcColumn != null) {
+                  replaceMap.put(jdbcColumn, c.getAlias());
+                } else {
+                  LOGGER.warning("Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+                }
+
+              } else {
+                c.getExpression().accept(this, null);
+              }
             }
-
-          } else {
-            c.getExpression().accept(this, null);
           }
-          //
-          //
-          // JdbcColumn jdbcColumn = c getJdbcColumn(metaData,
-          // c.getExpression().getTable() == null ? c.getExpression().withTable(table)
-          // : c.getExpression());
-          // if (jdbcColumn != null) {
-          // replaceMap.put(jdbcColumn, c.getAlias());
-          // } else {
-          // LOGGER.warning(
-          // "Could not resolve REPLACE Column " + c.getExpression().getFullyQualifiedName());
-          // }
         }
       }
 
@@ -351,23 +351,28 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       JdbcMetaData metaData = (JdbcMetaData) context;
 
       HashSet<JdbcColumn> excepts = new HashSet<>();
-      ExpressionList<Column> exceptColumns = allColumns.getExceptColumns();
-      if (exceptColumns != null) {
-        for (Column c : exceptColumns) {
-          if (c.getTable() != null) {
-            JdbcColumn jdbcColumn = getJdbcColumn(metaData, c);
-            if (jdbcColumn != null) {
-              excepts.add(jdbcColumn);
-            } else {
-              LOGGER.warning("Could not resolve EXCEPT Column " + c.getFullyQualifiedName());
-            }
-          } else {
-            for (Table t : metaData.getFromTables().values()) {
-              JdbcColumn jdbcColumn = getJdbcColumn(metaData, c.withTable(t));
-              if (jdbcColumn != null) {
-                excepts.add(jdbcColumn);
+      List<ColumnsTransformer> transformers = allColumns.getTransformers();
+      if (transformers != null) {
+        for (ColumnsTransformer transformer : transformers) {
+          if (transformer.getType() == ColumnsTransformerType.EXCEPT
+              && transformer.getExceptColumns() != null) {
+            for (Column c : transformer.getExceptColumns()) {
+              if (c.getTable() != null) {
+                JdbcColumn jdbcColumn = getJdbcColumn(metaData, c);
+                if (jdbcColumn != null) {
+                  excepts.add(jdbcColumn);
+                } else {
+                  LOGGER.warning("Could not resolve EXCEPT Column " + c.getFullyQualifiedName());
+                }
               } else {
-                LOGGER.fine("Could not resolve EXCEPT Column " + c.getFullyQualifiedName());
+                for (Table t : metaData.getFromTables().values()) {
+                  JdbcColumn jdbcColumn = getJdbcColumn(metaData, c.withTable(t));
+                  if (jdbcColumn != null) {
+                    excepts.add(jdbcColumn);
+                  } else {
+                    LOGGER.fine("Could not resolve EXCEPT Column " + c.getFullyQualifiedName());
+                  }
+                }
               }
             }
           }
@@ -375,33 +380,37 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       }
 
       HashMap<JdbcColumn, Alias> replaceMap = new HashMap<>();
-      List<SelectItem<?>> replaceExpressions = allColumns.getReplaceExpressions();
-      if (replaceExpressions != null) {
-        for (SelectItem<?> c : replaceExpressions) {
-          if (c.getExpression() instanceof Column) {
-            Column column = (Column) c.getExpression();
+      if (transformers != null) {
+        for (ColumnsTransformer transformer : transformers) {
+          if (transformer.getType() == ColumnsTransformerType.REPLACE
+              && transformer.getReplaceItems() != null) {
+            for (SelectItem<?> c : transformer.getReplaceItems()) {
+              if (c.getExpression() instanceof Column) {
+                Column column = (Column) c.getExpression();
 
-            if (column.getTable() != null) {
-              JdbcColumn jdbcColumn = getJdbcColumn(metaData, column);
-              if (jdbcColumn != null) {
-                replaceMap.put(jdbcColumn, c.getAlias());
-              } else {
-                LOGGER
-                    .warning("Could not resolve REPLACE Column " + column.getFullyQualifiedName());
-              }
-            } else {
-              for (Table t : metaData.getFromTables().values()) {
-                JdbcColumn jdbcColumn = getJdbcColumn(metaData, column.withTable(t));
-                if (jdbcColumn != null) {
-                  replaceMap.put(jdbcColumn, c.getAlias());
+                if (column.getTable() != null) {
+                  JdbcColumn jdbcColumn = getJdbcColumn(metaData, column);
+                  if (jdbcColumn != null) {
+                    replaceMap.put(jdbcColumn, c.getAlias());
+                  } else {
+                    LOGGER
+                        .warning("Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+                  }
                 } else {
-                  LOGGER.warning(
-                      "Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+                  for (Table t : metaData.getFromTables().values()) {
+                    JdbcColumn jdbcColumn = getJdbcColumn(metaData, column.withTable(t));
+                    if (jdbcColumn != null) {
+                      replaceMap.put(jdbcColumn, c.getAlias());
+                    } else {
+                      LOGGER.warning(
+                          "Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+                    }
+                  }
                 }
+              } else {
+                c.getExpression().accept(this, null);
               }
             }
-          } else {
-            c.getExpression().accept(this, null);
           }
         }
       }
