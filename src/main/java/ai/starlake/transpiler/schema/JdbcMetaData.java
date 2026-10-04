@@ -43,6 +43,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 import ai.starlake.transpiler.schema.JdbcUtils.DatabaseSpecific;
 
@@ -415,6 +416,28 @@ public final class JdbcMetaData implements DatabaseMetaData {
    * @throws SQLException when the database fails to return CURRENT_CATALOG or CURRENT_SCHEMA
    */
   public JdbcMetaData(Connection conn) throws SQLException {
+    this(conn, Collections.emptyList());
+  }
+
+  /**
+   * Extracts schemas matching case-insensitive schema or catalog.schema LIKE patterns. Percent
+   * matches any sequence, underscore one character, and backslash escapes a character. Catalog
+   * names are exact. Database-specific system-schema exclusions still apply. Null or empty patterns
+   * extract all schemas; unmatched patterns produce no tables. The connection's current catalog and
+   * schema are not changed.
+   *
+   * @param conn the physical connection
+   * @param schemaPatterns schema or catalog.schema patterns
+   * @throws SQLException when metadata extraction fails
+   * @throws IllegalArgumentException when a pattern is invalid
+   */
+  public JdbcMetaData(Connection conn, Collection<String> schemaPatterns) throws SQLException {
+    List<String[]> patterns = new ArrayList<>();
+    if (schemaPatterns != null) {
+      for (String pattern : schemaPatterns) {
+        patterns.add(parseSchemaPattern(pattern));
+      }
+    }
     DatabaseMetaData metaData = conn.getMetaData();
     this.databaseType = JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName());
 
@@ -453,7 +476,32 @@ public final class JdbcMetaData implements DatabaseMetaData {
       }
     }
 
-    for (JdbcTable jdbcTable : JdbcTable.getTables(metaData, null, null)) {
+    List<JdbcSchema> selectedSchemas = new ArrayList<>();
+    if (!patterns.isEmpty()) {
+      for (JdbcCatalog catalog : catalogs.values()) {
+        catalog.schemas.values()
+            .removeIf(schema -> !schema.tableSchema.isEmpty()
+                && (!databaseType.processSchema(schema.tableSchema)
+                    || !matchesSchema(patterns, schema)));
+        for (JdbcSchema schema : catalog.schemas.values()) {
+          if (databaseType.processSchema(schema.tableSchema) && matchesSchema(patterns, schema)) {
+            selectedSchemas.add(schema);
+          }
+        }
+      }
+      catalogs.values().removeIf(catalog -> !catalog.tableCatalog.isEmpty()
+          && catalog.schemas.values().stream().noneMatch(schema -> !schema.tableSchema.isEmpty()));
+    }
+    Collection<JdbcTable> tables = new ArrayList<>();
+    if (patterns.isEmpty()) {
+      tables = JdbcTable.getTables(metaData, null, null);
+    } else {
+      for (JdbcSchema schema : selectedSchemas) {
+        tables
+            .addAll(JdbcTable.getTablesInSchema(metaData, schema.tableCatalog, schema.tableSchema));
+      }
+    }
+    for (JdbcTable jdbcTable : tables) {
       String tableCatalog = jdbcTable.tableCatalog;
       String tableSchema = jdbcTable.tableSchema;
       JdbcCatalog catalog = catalogs.get(tableCatalog);
@@ -465,7 +513,16 @@ public final class JdbcMetaData implements DatabaseMetaData {
       }
     }
 
-    for (JdbcColumn column : JdbcTable.getColumns(metaData)) {
+    Collection<JdbcColumn> columns = new ArrayList<>();
+    if (patterns.isEmpty()) {
+      columns = JdbcTable.getColumns(metaData);
+    } else {
+      for (JdbcSchema schema : selectedSchemas) {
+        columns.addAll(
+            JdbcTable.getColumnsInSchema(metaData, schema.tableCatalog, schema.tableSchema));
+      }
+    }
+    for (JdbcColumn column : columns) {
       String tableCatalog = column.tableCatalog;
       String tableSchema = column.tableSchema;
       String tableName = column.tableName;
@@ -481,6 +538,89 @@ public final class JdbcMetaData implements DatabaseMetaData {
         }
       }
     }
+  }
+
+  /**
+   * Parses schema or catalog.schema, splitting at the last unquoted dot. Double-quoted identifiers
+   * may contain dots and doubled double quotes.
+   *
+   * @param pattern the pattern to validate
+   * @return catalog (null when absent) and schema LIKE pattern
+   * @throws IllegalArgumentException for invalid patterns or catalog wildcards
+   */
+  public static String[] parseSchemaPattern(String pattern) {
+    if (pattern == null || pattern.isBlank()) {
+      throw new IllegalArgumentException("Schema pattern must not be blank");
+    }
+    String value = pattern.trim();
+    boolean quoted = false;
+    int separator = -1;
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      if (c == '"') {
+        if (quoted && i + 1 < value.length() && value.charAt(i + 1) == '"') {
+          i++;
+        } else {
+          quoted = !quoted;
+        }
+      } else if (c == '.' && !quoted) {
+        separator = i;
+      }
+    }
+    if (quoted) {
+      throw new IllegalArgumentException("Unclosed quoted identifier");
+    }
+    String catalog = separator < 0 ? null : parsePatternPart(value.substring(0, separator));
+    String schema = parsePatternPart(value.substring(separator + 1));
+    if (catalog != null && (catalog.contains("%") || catalog.contains("_"))) {
+      throw new IllegalArgumentException("Catalog wildcards are not supported");
+    }
+    return new String[] {catalog, schema};
+  }
+
+  private static String parsePatternPart(String part) {
+    String value = part.trim();
+    if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
+      value = value.substring(1, value.length() - 1);
+      if (value.replace("\"\"", "").contains("\"")) {
+        throw new IllegalArgumentException("Malformed quoted identifier");
+      }
+      value = value.replace("\"\"", "\"");
+    } else if (value.contains("\"")) {
+      throw new IllegalArgumentException("Malformed quoted identifier");
+    }
+    if (value.isBlank()) {
+      throw new IllegalArgumentException("Empty catalog or schema");
+    }
+    return value;
+  }
+
+  private static boolean matchesSchema(List<String[]> patterns, JdbcSchema schema) {
+    for (String[] pattern : patterns) {
+      if ((pattern[0] == null || pattern[0].equalsIgnoreCase(schema.tableCatalog))
+          && schemaLikePattern(pattern[1]).matcher(schema.tableSchema).matches()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static Pattern schemaLikePattern(String value) {
+    StringBuilder regex = new StringBuilder();
+    for (int i = 0; i < value.length(); i++) {
+      char c = value.charAt(i);
+      if (c == '\\' && i + 1 < value.length()) {
+        regex.append(Pattern.quote(String.valueOf(value.charAt(++i))));
+      } else if (c == '%') {
+        regex.append(".*");
+      } else if (c == '_') {
+        regex.append('.');
+      } else {
+        regex.append(Pattern.quote(String.valueOf(c)));
+      }
+    }
+    return Pattern.compile(regex.toString(),
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE | Pattern.DOTALL);
   }
 
   public void updateTable(Connection conn, Table t) throws SQLException {

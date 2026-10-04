@@ -15,6 +15,7 @@ package ai.starlake.transpiler.schema;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Locale;
 
 public class JdbcUtils {
 
@@ -31,6 +32,12 @@ public class JdbcUtils {
         new String[] {"SYS", "CTXSYS", "CTXAPP", "MDSYS"},
         "SELECT SYS_CONTEXT('USERENV', 'DB_NAME') AS database_name , SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AS current_schema FROM dual"),
     // --
+    // Redshift must precede PostgreSQL for drivers advertising PostgreSQL compatibility.
+    REDSHIFT(
+        "REDSHIFT", null, new String[] {"INFORMATION_SCHEMA", "PG_CATALOG", "PG_INTERNAL",
+            "PG_TOAST", "PG_AUTOMV", "CATALOG_HISTORY"},
+        "SELECT current_database(), current_schema()"),
+    // --
     POSTGRESQL("POSTGRESQL",
         new String[] {"TABLE", "VIEW", "FOREIGN TABLE", "MATERIALIZED VIEW", "PARTITIONED TABLE",
             "SYSTEM TABLE", "TEMPORARY TABLE", "TEMPORARY VIEW"},
@@ -39,18 +46,42 @@ public class JdbcUtils {
     MSSQL("MICROSOFT SQL SERVER", new String[] {"SYSTEM TABLE", "TABLE", "VIEW"}, null,
         "SELECT DB_NAME(), SCHEMA_NAME()"),
     // --
+    // MariaDB must precede MySQL for product strings mentioning both names.
+    MARIADB("MARIADB", null,
+        new String[] {"INFORMATION_SCHEMA", "MYSQL", "PERFORMANCE_SCHEMA", "SYS"},
+        "SELECT DATABASE(), DATABASE()"),
+    // --
     MYSQL("MYSQL", new String[] {"TABLE", "VIEW"}, null, "SELECT DATABASE(), DATABASE()"),
     // --
     SNOWFLAKE("SNOWFLAKE", new String[] {"TABLE", "VIEW"}, null,
         "SELECT CURRENT_DATABASE(), CURRENT_SCHEMA()"),
     // --
+    // Keep all JDBC-reported table types, including vendor-specific views and aliases.
+    SAP_HANA("HANA", null, new String[] {"SYS", "SYS_DATABASES", "_SYS_STATISTICS", "_SYS_REPO"},
+        "SELECT DATABASE_NAME, CURRENT_SCHEMA FROM SYS.M_DATABASE", "HDB"),
+    // Teradata databases are exposed as JDBC schemas; there is no catalog qualifier.
+    TERADATA("TERADATA", null, new String[] {"DBC", "SYS_CALENDAR"}, "SELECT '', DATABASE"),
+    // --
+    DB2("DB2", null,
+        new String[] {"SYSCAT", "SYSIBM", "SYSIBMADM", "SYSSTAT", "SYSFUN", "SYSPROC", "SYSPUBLIC",
+            "SYSIBMINTERNAL", "SYSIBMTS", "SYSTOOLS", "NULLID", "SQLJ"},
+        "SELECT CURRENT SERVER, CURRENT SCHEMA FROM SYSIBM.SYSDUMMY1"),
+    // BigQuery maps projects to catalogs and datasets to schemas. The default dataset may be null.
+    BIGQUERY("BIGQUERY", null, new String[] {"INFORMATION_SCHEMA"},
+        "SELECT COALESCE(@@dataset_project_id, @@project_id), @@dataset_id", "BIG QUERY"),
+    // The Databricks JDBC driver reports SparkSQL, not Databricks.
+    DATABRICKS("DATABRICKS", null, new String[] {"INFORMATION_SCHEMA"},
+        "SELECT current_catalog(), current_schema()", "SPARKSQL", "SPARK SQL"),
+    // --
     DUCKDB("DUCK", null, null, "SELECT current_catalog(), current_schema()"),
     // --
-    H2("H2", null, null, "SELECT current_catalog(), current_schema()"),
+    H2("H2", null, new String[] {"INFORMATION_SCHEMA"},
+        "SELECT current_catalog(), current_schema()"),
     // --
     OTHER("OTHER", null, null, "SELECT current_database(), current_schema()");
 
     String identString;
+    private final String[] productAliases;
     String currentSchemaQuery;
     String[] tableTypes;
     String[] excludedSchemas;
@@ -68,20 +99,30 @@ public class JdbcUtils {
      *        DB's catalog&schemas. If null, then all schemas accepted.
      * @param schemaQuery query to execute against particular DB type to get information about
      *        current catalog/db & schema.
+     * @param productAliases alternative product names reported by JDBC drivers
      */
     DatabaseSpecific(String identString, String[] tableTypes, String[] excludedSchemas,
-        String schemaQuery) {
+        String schemaQuery, String... productAliases) {
       this.identString = identString;
+      this.productAliases = productAliases;
       this.tableTypes = tableTypes;
       this.excludedSchemas = excludedSchemas;
       this.currentSchemaQuery = schemaQuery;
     }
 
     public static DatabaseSpecific getType(String productName) {
-      final String name = productName.toUpperCase();
+      if (productName == null) {
+        return OTHER;
+      }
+      final String name = productName.toUpperCase(Locale.ROOT);
       for (DatabaseSpecific type : values()) {
         if (name.contains(type.identString)) {
           return type;
+        }
+        for (String alias : type.productAliases) {
+          if (name.contains(alias)) {
+            return type;
+          }
         }
       }
       return OTHER;

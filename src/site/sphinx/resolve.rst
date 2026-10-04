@@ -45,6 +45,97 @@ See the Java API for all the available constructors and methods.
     JdbcMetaData metaData = new JdbcMetaData(schemaDefinition);
 
 
+To restrict extraction to selected schemas, pass schema patterns. Catalog and schema discovery
+still runs, but only matched schemas have their tables and columns extracted:
+
+.. code-block:: java
+
+    JdbcMetaData selected = new JdbcMetaData(conn, List.of("SALES", "STAGE%"));
+    String[] parts = JdbcMetaData.parseSchemaPattern("\"my.db\".public");
+    // parts: {"my.db", "public"}
+
+Patterns use ``schema`` or ``catalog.schema``. Catalog names match exactly, ignoring case;
+schema patterns match case-insensitively with ``%`` for any sequence, ``_`` for one character,
+and backslash to escape the following character. Double quotes protect dots within names,
+and doubled double quotes represent a literal quote. Catalog wildcards are rejected.
+Matching uses discovered names, so lowercase patterns also retrieve uppercase schemas.
+Overlapping patterns extract each matched schema once. The current catalog and schema are
+unchanged. Null or empty pattern collections retain unrestricted extraction; unmatched patterns
+produce no tables. Empty catalog/schema placeholders remain available.
+
+Database-specific system-schema exclusions apply even to explicit patterns. H2 excludes
+``INFORMATION_SCHEMA`` tables for both filtered and unrestricted extraction. JSON serialization
+is unchanged, including acceptance of additional top-level keys when reading metadata.
+
+
+Database-specific metadata configurations
+========================================
+
+``JdbcUtils.DatabaseSpecific`` recognizes Oracle, PostgreSQL, Microsoft SQL Server,
+MySQL, Snowflake, DuckDB, H2, and the following additional products:
+
+.. list-table:: Additional JDBC database configurations
+    :header-rows: 1
+    :widths: 20 30 50
+
+    * - Database
+      - Product-name matching
+      - Current catalog / schema lookup
+    * - SAP HANA
+      - HANA or HDB
+      - DATABASE_NAME and CURRENT_SCHEMA from SYS.M_DATABASE
+    * - Teradata
+      - TERADATA
+      - Empty catalog and DATABASE (Teradata databases are JDBC schemas)
+    * - Db2
+      - DB2, including platform-qualified names
+      - CURRENT SERVER and CURRENT SCHEMA from SYSIBM.SYSDUMMY1
+    * - MariaDB
+      - MARIADB, before MYSQL matching
+      - DATABASE() for both values, following the existing MySQL convention
+    * - BigQuery
+      - BIGQUERY or BIG QUERY
+      - Default dataset project (or execution project) and default dataset
+    * - Amazon Redshift
+      - REDSHIFT, before POSTGRESQL matching
+      - current_database() and current_schema()
+    * - Databricks
+      - DATABRICKS, SPARKSQL or SPARK SQL
+      - current_catalog() and current_schema()
+
+New configurations request all JDBC-reported table types, preserving external tables,
+materialized objects, aliases, and other vendor-specific types. Exclusions match exact
+schema names, ignoring case. HANA excludes SYS, SYS_DATABASES, _SYS_STATISTICS and
+_SYS_REPO, while keeping _SYS_BIC application views available. Teradata excludes DBC
+and Sys_Calendar. Db2 excludes its standard catalog, administrative, routine and package
+schemas. MariaDB excludes information_schema, mysql, performance_schema and sys.
+BigQuery and Databricks exclude INFORMATION_SCHEMA. Redshift excludes INFORMATION_SCHEMA,
+pg_catalog, pg_internal, pg_toast, pg_automv and catalog_history. Existing database policies
+are unchanged.
+
+These configurations supply detection and extraction policy, not dedicated vendor metadata
+implementations. INFORMATION_SCHEMA queries retain their existing JDBC fallbacks. Actual
+catalog/schema mapping and metadata availability depend on the driver and permissions;
+for example, MariaDB drivers may expose databases as catalogs instead of schemas.
+Databricks system-catalog telemetry schemas are not globally excluded by the schema-only policy.
+A BigQuery connection without a default dataset may report an empty current schema.
+
+Vendor references: `HANA database name
+<https://help.sap.com/docs/SLTOOLSET/d4ad61b0bcc143b19ff737ef0796fd9b/fa3f4554f82b1d5de10000000a44538d.html>`_,
+`Teradata JDBC metadata
+<https://teradata-docs.s3.amazonaws.com/doc/connectivity/jdbc/reference/current/jdbcug_chapter_3.html>`_,
+`Db2 special registers
+<https://www.ibm.com/docs/en/db2-for-zos/12.0.0?topic=statements-set-schema>`_,
+`MariaDB DATABASE()
+<https://mariadb.com/docs/server/reference/sql-functions/secondary-functions/information-functions/database>`_,
+`BigQuery system variables
+<https://docs.cloud.google.com/bigquery/docs/reference/system-variables>`_,
+`Redshift system information functions
+<https://docs.aws.amazon.com/redshift/latest/dg/r_System_information_functions.html>`_,
+and `Databricks catalog/schema lookup
+<https://docs.databricks.com/aws/en/query>`_.
+
+
 Step 2: Rewrite the Star Operators
 ************************************
 

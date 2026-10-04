@@ -21,7 +21,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -88,83 +87,122 @@ public class JdbcTable implements Comparable<JdbcTable> {
 
   public static ArrayList<JdbcTable> getTablesFromInformationSchema(DatabaseMetaData metaData,
       String currentCatalog, String currentSchema, String tableNamePattern) throws SQLException {
+    return getTablesFromInformationSchema(metaData, currentCatalog, currentSchema, tableNamePattern,
+        false);
+  }
+
+  private static ArrayList<JdbcTable> getTablesFromInformationSchema(DatabaseMetaData metaData,
+      String currentCatalog, String currentSchema, String tableNamePattern, boolean exactSchema)
+      throws SQLException {
     ArrayList<JdbcTable> jdbcTables = new ArrayList<>();
 
     JdbcUtils.DatabaseSpecific dbSpecific =
         JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName());
 
     Connection conn = metaData.getConnection();
-    String sqlStr =
-        String.format("SELECT * FROM %s.information_schema.tables WHERE table_name LIKE '%s'",
-            conn.getCatalog(), tableNamePattern == null ? "%" : tableNamePattern);
-    try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sqlStr)) {
-      while (rs.next()) {
-        // TABLE_CATALOG String => catalog name (may be null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CATALOG", currentCatalog);
+    String catalog =
+        currentCatalog == null || currentCatalog.isEmpty() ? conn.getCatalog() : currentCatalog;
+    String prefix =
+        catalog == null || catalog.isEmpty() ? "" : "\"" + catalog.replace("\"", "\"\"") + "\".";
+    StringBuilder query =
+        new StringBuilder("SELECT * FROM " + prefix + "information_schema.tables WHERE 1=1");
+    List<Object> params = new ArrayList<>();
+    if (currentCatalog != null && !currentCatalog.isEmpty()) {
+      query.append(" AND TABLE_CATALOG = ?");
+      params.add(currentCatalog);
+    }
+    if (currentSchema != null && (exactSchema || !currentSchema.isEmpty())) {
+      query.append(!exactSchema && hasWildcards(currentSchema) ? " AND TABLE_SCHEMA LIKE ?"
+          : " AND TABLE_SCHEMA = ?");
+      params.add(currentSchema);
+    }
+    query.append(" AND TABLE_NAME LIKE ?");
+    params.add(tableNamePattern == null ? "%" : tableNamePattern);
+    try (PreparedStatement st = conn.prepareStatement(query.toString())) {
+      for (int i = 0; i < params.size(); i++) {
+        st.setObject(i + 1, params.get(i));
+      }
+      try (ResultSet rs = st.executeQuery()) {
+        while (rs.next()) {
+          // TABLE_CATALOG String => catalog name (may be null)
+          String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CATALOG", currentCatalog);
 
-        // TABLE_SCHEM String => schema name
-        String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEMA", currentSchema);
+          // TABLE_SCHEM String => schema name
+          String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEMA", currentSchema);
 
-        // Should this schema be included or ignored ?
-        if (!dbSpecific.processSchema(tableSchema)) {
-          continue;
+          // Should this schema be included or ignored ?
+          if (!dbSpecific.processSchema(tableSchema)) {
+            continue;
+          }
+
+          // TABLE_NAME String => table name
+          String tableName = JdbcUtils.getStringSafe(rs, "TABLE_NAME");
+
+          // TABLE_TYPE String => table type. Typical
+          // types are "TABLE", "VIEW", "SYSTEM TABLE", "GLOBAL TEMPORARY", "LOCAL
+          // TEMPORARY",
+          // "ALIAS", "SYNONYM".
+          String tableType = JdbcUtils.getStringSafe(rs, "TABLE_TYPE");
+
+          // REMARKS String => explanatory comment on the table(may be null)
+          String remarks = JdbcUtils.getStringSafe(rs, "COMMENT");
+
+          // TYPE_CAT String => the types catalog (may be null)
+          String typeCatalog = JdbcUtils.getStringSafe(rs, "USER_DEFINED_TYPE_CATALOG");
+
+          // TYPE_SCHEM String => the types schema (may be null)
+          String typeSchema = JdbcUtils.getStringSafe(rs, "USER_DEFINED_TYPE_SCHEMA");
+
+          // TYPE_NAME String => type name (may be null)
+          String typeName = JdbcUtils.getStringSafe(rs, "USER_DEFINED_TYPE_NAME");
+
+          // SELF_REFERENCING_COL_NAME
+          // String => name of the designated "identifier" column of a typed table (may be
+          // null)
+          String selfReferenceColName = JdbcUtils.getStringSafe(rs, "SELF_REFERENCING_COLUMN_NAME");
+
+          // REF_GENERATION String => specifies how values in SELF_REFERENCING_COL_NAME
+          // are created.
+          // Values are "SYSTEM", "USER", "DERIVED". (may be null)
+          String referenceGeneration = JdbcUtils.getStringSafe(rs, "REFERENCE_GENERATION");
+
+          JdbcTable jdbcTable =
+              new JdbcTable(tableCatalog, tableSchema, tableName, tableType, remarks, typeCatalog,
+                  typeSchema, typeName, selfReferenceColName, referenceGeneration);
+
+          jdbcTables.add(jdbcTable);
         }
 
-        // TABLE_NAME String => table name
-        String tableName = JdbcUtils.getStringSafe(rs, "TABLE_NAME");
-
-        // TABLE_TYPE String => table type. Typical
-        // types are "TABLE", "VIEW", "SYSTEM TABLE", "GLOBAL TEMPORARY", "LOCAL
-        // TEMPORARY",
-        // "ALIAS", "SYNONYM".
-        String tableType = JdbcUtils.getStringSafe(rs, "TABLE_TYPE");
-
-        // REMARKS String => explanatory comment on the table(may be null)
-        String remarks = JdbcUtils.getStringSafe(rs, "COMMENT");
-
-        // TYPE_CAT String => the types catalog (may be null)
-        String typeCatalog = JdbcUtils.getStringSafe(rs, "USER_DEFINED_TYPE_CATALOG");
-
-        // TYPE_SCHEM String => the types schema (may be null)
-        String typeSchema = JdbcUtils.getStringSafe(rs, "USER_DEFINED_TYPE_SCHEMA");
-
-        // TYPE_NAME String => type name (may be null)
-        String typeName = JdbcUtils.getStringSafe(rs, "USER_DEFINED_TYPE_NAME");
-
-        // SELF_REFERENCING_COL_NAME
-        // String => name of the designated "identifier" column of a typed table (may be
-        // null)
-        String selfReferenceColName = JdbcUtils.getStringSafe(rs, "SELF_REFERENCING_COLUMN_NAME");
-
-        // REF_GENERATION String => specifies how values in SELF_REFERENCING_COL_NAME
-        // are created.
-        // Values are "SYSTEM", "USER", "DERIVED". (may be null)
-        String referenceGeneration = JdbcUtils.getStringSafe(rs, "REFERENCE_GENERATION");
-
-        JdbcTable jdbcTable = new JdbcTable(tableCatalog, tableSchema, tableName, tableType,
-            remarks, typeCatalog, typeSchema, typeName, selfReferenceColName, referenceGeneration);
-
-        jdbcTables.add(jdbcTable);
       }
-
     }
     return jdbcTables;
   }
 
   public static Collection<JdbcTable> getTables(DatabaseMetaData metaData, String currentCatalog,
       String currentSchema, String tableNamePattern) throws SQLException {
+    return getTables(metaData, currentCatalog, currentSchema, tableNamePattern, false);
+  }
+
+  static Collection<JdbcTable> getTablesInSchema(DatabaseMetaData metaData, String catalog,
+      String schema) throws SQLException {
+    return getTables(metaData, catalog, schema, "%", true);
+  }
+
+  private static Collection<JdbcTable> getTables(DatabaseMetaData metaData, String currentCatalog,
+      String currentSchema, String tableNamePattern, boolean exactSchema) throws SQLException {
     ArrayList<JdbcTable> jdbcTables = new ArrayList<>();
 
     try {
-      jdbcTables =
-          getTablesFromInformationSchema(metaData, currentCatalog, currentSchema, tableNamePattern);
+      jdbcTables = getTablesFromInformationSchema(metaData, currentCatalog, currentSchema,
+          tableNamePattern, exactSchema);
     } catch (SQLException ex) {
       LOGGER.log(Level.FINE, "Failed get Tables from INFORMATION_SCHEMA, use DatabaseMetaData now.",
           ex);
 
       JdbcUtils.DatabaseSpecific dbSpecific =
           JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName());
-      try (ResultSet rs = metaData.getTables(currentCatalog, currentSchema, tableNamePattern,
+      try (ResultSet rs = metaData.getTables(currentCatalog,
+          exactSchema ? escapeSchema(metaData, currentSchema) : currentSchema, tableNamePattern,
           dbSpecific.tableTypes);) {
         while (rs.next()) {
           // TABLE_CATALOG String => catalog name (may be null)
@@ -227,6 +265,13 @@ public class JdbcTable implements Comparable<JdbcTable> {
 
   public static Collection<JdbcColumn> getColumnsFromSchemaInformation(Connection connection,
       String catalog, String schemaPattern, String tableNamePattern) throws SQLException {
+    return getColumnsFromSchemaInformation(connection, catalog, schemaPattern, tableNamePattern,
+        false);
+  }
+
+  private static Collection<JdbcColumn> getColumnsFromSchemaInformation(Connection connection,
+      String catalog, String schemaPattern, String tableNamePattern, boolean exactSchema)
+      throws SQLException {
     ArrayList<JdbcColumn> jdbcColumns = new ArrayList<>();
 
     // Build the query to fetch column information from INFORMATION_SCHEMA
@@ -243,8 +288,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
       params.add(catalog);
     }
 
-    if (schemaPattern != null && !schemaPattern.isEmpty()) {
-      if (schemaPattern.contains("%")) {
+    if (schemaPattern != null && (exactSchema || !schemaPattern.isEmpty())) {
+      if (!exactSchema && hasWildcards(schemaPattern)) {
         query.append(" AND TABLE_SCHEMA LIKE ?");
         params.add(schemaPattern);
       } else {
@@ -254,7 +299,7 @@ public class JdbcTable implements Comparable<JdbcTable> {
     }
 
     if (tableNamePattern != null && !tableNamePattern.isEmpty()) {
-      if (tableNamePattern.contains("%")) {
+      if (hasWildcards(tableNamePattern)) {
         query.append(" AND TABLE_NAME LIKE ?");
         params.add(tableNamePattern);
       } else {
@@ -381,11 +426,34 @@ public class JdbcTable implements Comparable<JdbcTable> {
 
   public static Collection<JdbcColumn> getColumns(DatabaseMetaData metaData, String catalog,
       String schemaPattern, String tableNamePattern) throws SQLException {
+    return getColumns(metaData, catalog, schemaPattern, tableNamePattern, false);
+  }
+
+  static Collection<JdbcColumn> getColumnsInSchema(DatabaseMetaData metaData, String catalog,
+      String schema) throws SQLException {
+    return getColumns(metaData, catalog, schema, "%", true);
+  }
+
+  private static boolean hasWildcards(String pattern) {
+    return pattern.contains("%") || pattern.contains("_");
+  }
+
+  private static String escapeSchema(DatabaseMetaData metaData, String schema) throws SQLException {
+    String escape = metaData.getSearchStringEscape();
+    if (schema == null || escape == null || escape.isEmpty()) {
+      return schema;
+    }
+    return schema.replace(escape, escape + escape).replace("%", escape + "%").replace("_",
+        escape + "_");
+  }
+
+  private static Collection<JdbcColumn> getColumns(DatabaseMetaData metaData, String catalog,
+      String schemaPattern, String tableNamePattern, boolean exactSchema) throws SQLException {
     ArrayList<JdbcColumn> jdbcColumns = new ArrayList<>();
 
     try {
       return getColumnsFromSchemaInformation(metaData.getConnection(), catalog, schemaPattern,
-          tableNamePattern);
+          tableNamePattern, exactSchema);
     } catch (SQLException ex) {
       LOGGER.log(Level.FINE,
           "Failed get Table Columns from INFORMATION_SCHEMA, use DatabaseMetaData now.", ex);
@@ -393,7 +461,9 @@ public class JdbcTable implements Comparable<JdbcTable> {
       JdbcUtils.DatabaseSpecific dbSpecific =
           JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName());
 
-      try (ResultSet rs = metaData.getColumns(catalog, schemaPattern, tableNamePattern, "%");) {
+      try (ResultSet rs = metaData.getColumns(catalog,
+          exactSchema ? escapeSchema(metaData, schemaPattern) : schemaPattern, tableNamePattern,
+          "%");) {
         while (rs.next()) {
           // TABLE_CATALOG String => catalog name (may be null)
           String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT", "");
