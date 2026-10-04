@@ -25,6 +25,8 @@ import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.ResultSet;
+import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -165,6 +167,104 @@ class JdbcSchemaFilterTest {
       assertEquals(selected.getCatalogsList(), restored.getCatalogsList());
       assertEquals(tables(selected), tables(restored));
     }
+  }
+
+  @Test
+  void postgresRoutingAvoidsProbesAndPreservesCallerWork() throws SQLException {
+    Connection[] wrapped = new Connection[1];
+    DatabaseMetaData md = proxy(DatabaseMetaData.class, conn.getMetaData(), (method, args) -> {
+      if (method.equals("getDatabaseProductName")) {
+        return "PostgreSQL";
+      }
+      if (method.equals("getConnection")) {
+        return wrapped[0];
+      }
+      if (method.equals("getColumns")) {
+        ResultSet columns = conn.getMetaData().getColumns((String) args[0], (String) args[1],
+            (String) args[2], (String) args[3]);
+        return proxy(ResultSet.class, columns, (name, parameters) -> {
+          if (name.equals("getString") && "TABLE_CAT".equals(parameters[0])) {
+            return null;
+          }
+          return UNHANDLED;
+        });
+      }
+      if (method.equals("getTables")) {
+        ResultSet tables = conn.getMetaData().getTables((String) args[0], (String) args[1],
+            (String) args[2], (String[]) args[3]);
+        return proxy(ResultSet.class, tables, (name, parameters) -> {
+          if (name.equals("getString") && "TABLE_CAT".equals(parameters[0])) {
+            return null;
+          }
+          return UNHANDLED;
+        });
+      }
+      if (method.equals("getSchemas")) {
+        return proxy(ResultSet.class, conn.getMetaData().getSchemas(), (name, parameters) -> {
+          if (name.equals("getString") && "TABLE_CATALOG".equals(parameters[0])) {
+            return null;
+          }
+          return UNHANDLED;
+        });
+      }
+      return UNHANDLED;
+    });
+    wrapped[0] = proxy(Connection.class, conn, (method, args) -> {
+      if (method.equals("getMetaData")) {
+        return md;
+      }
+      if (method.equals("setAutoCommit") || method.equals("commit") || method.equals("rollback")) {
+        throw new AssertionError("Metadata extraction changed caller transaction: " + method);
+      }
+      if (method.equals("prepareStatement")) {
+        throw new AssertionError("PostgreSQL must use JDBC metadata without SQL probes");
+      }
+      if (method.equals("createStatement")) {
+        Statement statement = conn.createStatement();
+        return proxy(Statement.class, statement, (name, parameters) -> {
+          if (name.equals("executeQuery")) {
+            assertEquals("SELECT current_database(), current_schema()", parameters[0]);
+            return statement.executeQuery("SELECT current_catalog(), current_schema()");
+          }
+          return UNHANDLED;
+        });
+      }
+      return UNHANDLED;
+    });
+    conn.setAutoCommit(false);
+    Savepoint beforeInsert = conn.setSavepoint();
+    try (Statement st = conn.createStatement()) {
+      st.execute("INSERT INTO SALES.ORDERS VALUES (7, 10)");
+    }
+    for (JdbcMetaData metadata : List.of(new JdbcMetaData(wrapped[0]),
+        new JdbcMetaData(wrapped[0], List.of("sales")))) {
+      assertNotNull(metadata.get(conn.getCatalog()).get("SALES"));
+      assertEquals(2, metadata.get(conn.getCatalog()).get("SALES").tables.size());
+      assertEquals(2, metadata.get(conn.getCatalog()).get("SALES").get("ORDERS").columns.size());
+    }
+    assertFalse(conn.getAutoCommit());
+    assertFalse(JdbcCatalog.getCatalogsFromInformationSchema(wrapped[0]).isEmpty());
+    assertFalse(JdbcSchema.getSchemasFromInformationSchema(wrapped[0]).isEmpty());
+    assertEquals(2,
+        JdbcTable.getTablesFromInformationSchema(md, conn.getCatalog(), "SALES", "%").size());
+    assertEquals(4, JdbcTable
+        .getColumnsFromSchemaInformation(wrapped[0], conn.getCatalog(), "SALES", "%").size());
+    try (Statement st = conn.createStatement();
+        ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM SALES.ORDERS")) {
+      if (!rs.next()) {
+        fail("Expected a result row");
+      }
+      assertEquals(1, rs.getInt(1));
+    }
+    conn.rollback(beforeInsert);
+    try (Statement st = conn.createStatement();
+        ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM SALES.ORDERS")) {
+      if (!rs.next()) {
+        fail("Expected a result row");
+      }
+      assertEquals(0, rs.getInt(1));
+    }
+    conn.rollback();
   }
 
   private Connection wrapConnection(List<String> calls, boolean failInformationSchema,

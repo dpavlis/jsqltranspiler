@@ -19,12 +19,17 @@ import ai.starlake.transpiler.schema.JdbcMetaData;
 import ai.starlake.transpiler.schema.JdbcResultSetMetaData;
 import ai.starlake.transpiler.schema.JdbcTable;
 import net.sf.jsqlparser.expression.Alias;
+import net.sf.jsqlparser.expression.CaseExpression;
+import net.sf.jsqlparser.expression.CastExpression;
+import net.sf.jsqlparser.expression.ExtractExpression;
+import net.sf.jsqlparser.expression.WhenClause;
 import net.sf.jsqlparser.expression.AnalyticExpression;
 import net.sf.jsqlparser.expression.ColumnsTransformer;
 import net.sf.jsqlparser.expression.ColumnsTransformer.ColumnsTransformerType;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.ExpressionVisitorAdapter;
 import net.sf.jsqlparser.expression.Function;
+import net.sf.jsqlparser.expression.IntervalExpression;
 import net.sf.jsqlparser.expression.JsonAggregateFunction;
 import net.sf.jsqlparser.expression.JsonFunction;
 import net.sf.jsqlparser.expression.JsonFunctionExpression;
@@ -170,16 +175,70 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
   }
 
   @Override
+  public <S> List<JdbcColumn> visit(CastExpression cast, S context) {
+    return visitExpressions(cast, context, List.of(cast.getLeftExpression()));
+  }
+
+  @Override
+  public <S> List<JdbcColumn> visit(ExtractExpression extract, S context) {
+    return visitExpressions(extract, context, List.of(extract.getExpression()));
+  }
+
+  @Override
+  public <S> List<JdbcColumn> visit(IntervalExpression interval, S context) {
+    if (interval.getExpression() == null) {
+      return applyExpression(interval, context);
+    }
+    return visitExpressions(interval, context, List.of(interval.getExpression()));
+  }
+
+  @Override
   public <S> List<JdbcColumn> visit(Function function, S context) {
     functions.add(function);
 
     JdbcColumn col = new JdbcColumn(function.getName(), function);
     if (function.getParameters() != null) {
-      for (Expression expression : function.getParameters()) {
+      for (int index = 0; index < function.getParameters().size(); index++) {
+        Expression expression = function.getParameters().get(index);
         List<JdbcColumn> subColumns = expression.accept(this, context);
+        boolean condition = "nullif".equalsIgnoreCase(function.getName()) && index == 1
+            || ("if".equalsIgnoreCase(function.getName())
+                || "iif".equalsIgnoreCase(function.getName())) && index == 0;
+        if (condition) {
+          subColumns.forEach(child -> child.setRole("condition"));
+        }
         col.add(subColumns);
       }
     }
+    return List.of(col);
+  }
+
+  private <S> void addRole(JdbcColumn parent, Expression expression, S context, String role) {
+    if (expression != null) {
+      List<JdbcColumn> children = expression.accept(this, context);
+      children.forEach(child -> child.setRole(role));
+      parent.add(children);
+    }
+  }
+
+  @Override
+  public <S> List<JdbcColumn> visit(CaseExpression expression, S context) {
+    JdbcColumn col = new JdbcColumn("CaseExpression", expression);
+    addRole(col, expression.getSwitchExpression(), context, "condition");
+    if (expression.getWhenClauses() != null) {
+      for (WhenClause clause : expression.getWhenClauses()) {
+        col.add(clause.accept(this, context));
+      }
+    }
+    addRole(col, expression.getElseExpression(), context, "value");
+    return List.of(col);
+  }
+
+  @Override
+  public <S> List<JdbcColumn> visit(WhenClause expression, S context) {
+    JdbcColumn col = new JdbcColumn("WhenClause", expression);
+    addRole(col, expression.getWhenExpression(), context, "condition");
+    addRole(col, expression.getThenExpression(), context, "value");
     return List.of(col);
   }
 
@@ -218,10 +277,14 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       col.add(function.getExpression().accept(this, context));
     }
 
+    addRole(col, function.getOffset(), context, "value");
+    addRole(col, function.getDefaultValue(), context, "value");
+    addRole(col, function.getFilterExpression(), context, "condition");
+
     ExpressionList<?> partitionExpressions = function.getPartitionExpressionList();
     if (partitionExpressions != null) {
       for (Expression e : partitionExpressions) {
-        col.add(e.accept(this, context));
+        addRole(col, e, context, "partition");
       }
     }
 
@@ -229,7 +292,7 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
     if (orderByElements != null) {
       for (OrderByElement e : orderByElements) {
         if (e.getExpression() != null) {
-          col.add(e.getExpression().accept(this, context));
+          addRole(col, e.getExpression(), context, "order");
         }
       }
     }
@@ -279,7 +342,8 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
                 if (jdbcColumn != null) {
                   replaceMap.put(jdbcColumn, c.getAlias());
                 } else {
-                  LOGGER.warning("Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+                  LOGGER.warning(
+                      "Could not resolve REPLACE Column " + column.getFullyQualifiedName());
                 }
 
               } else {
@@ -393,8 +457,8 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
                   if (jdbcColumn != null) {
                     replaceMap.put(jdbcColumn, c.getAlias());
                   } else {
-                    LOGGER
-                        .warning("Could not resolve REPLACE Column " + column.getFullyQualifiedName());
+                    LOGGER.warning(
+                        "Could not resolve REPLACE Column " + column.getFullyQualifiedName());
                   }
                 } else {
                   for (Table t : metaData.getFromTables().values()) {
@@ -543,7 +607,9 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
         }
       } else {
 
-        columns.add(jdbcColumn);
+        JdbcColumn reference = jdbcColumn.copyLineage();
+        reference.setExpression(column);
+        columns.add(reference);
       }
     }
 
@@ -553,16 +619,7 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
 
   @Override
   public <S> List<JdbcColumn> visit(ParenthesedSelect select, S context) {
-    ArrayList<JdbcColumn> columns = new ArrayList<>();
-    Object scope = nestedScope(context);
-    if (select.getWithItemsList() != null) {
-      for (WithItem<?> item : select.getWithItemsList()) {
-        columns.addAll(item.accept(columResolver, scope).getColumns());
-      }
-    }
-    columns.addAll(
-        select.accept((SelectVisitor<JdbcResultSetMetaData>) columResolver, scope).getColumns());
-    return columns;
+    return visit((Select) select, context);
   }
 
   /**
@@ -577,21 +634,12 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
 
   @Override
   public <S> List<JdbcColumn> visit(Select select, S context) {
-    ArrayList<JdbcColumn> columns = new ArrayList<>();
-    Object scope = nestedScope(context);
-    if (select.getWithItemsList() != null) {
-      for (WithItem<?> item : select.getWithItemsList()) {
-        for (JdbcColumn col : item.accept(columResolver, scope).getColumns()) {
-          columns.add(col.setExpression(select));
-        }
-      }
+    List<JdbcColumn> columns = new ArrayList<>();
+    JdbcResultSetMetaData resolved =
+        select.accept((SelectVisitor<JdbcResultSetMetaData>) columResolver, nestedScope(context));
+    for (JdbcColumn column : resolved.getColumns()) {
+      columns.add(column.copyLineage().setExpression(select).setSubqueryMetaData(resolved));
     }
-
-    for (JdbcColumn col : select.accept((SelectVisitor<JdbcResultSetMetaData>) columResolver, scope)
-        .getColumns()) {
-      columns.add(col.setExpression(select));
-    }
-
     return columns;
   }
 

@@ -94,6 +94,8 @@ dependencies {
 
     implementation 'com.h2database:h2:+'
 
+    testRuntimeOnly "org.postgresql:postgresql:${findProperty('postgresJdbcVersion') ?: '42.7.13'}"
+
     testImplementation 'org.duckdb:duckdb_jdbc:1.5.2.0'
     testImplementation 'net.snowflake:snowflake-jdbc:+'
 

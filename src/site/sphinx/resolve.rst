@@ -110,8 +110,13 @@ _SYS_REPO, while keeping _SYS_BIC application views available. Teradata excludes
 and Sys_Calendar. Db2 excludes its standard catalog, administrative, routine and package
 schemas. MariaDB excludes information_schema, mysql, performance_schema and sys.
 BigQuery and Databricks exclude INFORMATION_SCHEMA. Redshift excludes INFORMATION_SCHEMA,
-pg_catalog, pg_internal, pg_toast, pg_automv and catalog_history. Existing database policies
-are unchanged.
+pg_catalog, pg_internal, pg_toast, pg_automv and catalog_history. Existing database schema-exclusion policies
+are unchanged. PostgreSQL uses JDBC metadata directly for catalogs, schemas, tables and columns,
+including calls to the public INFORMATION_SCHEMA helpers. Its driver may omit the catalog on
+schema, table and column rows (including pgJDBC 42.7.3). Missing table/column catalogs use
+the requested catalog, or the connection's current catalog when none was requested;
+schema catalogs use the connection's current catalog. Extraction never
+changes auto-commit or commits/rolls back caller transactions.
 
 These configurations supply detection and extraction policy, not dedicated vendor metadata
 implementations. INFORMATION_SCHEMA queries retain their existing JDBC fallbacks. Actual
@@ -134,6 +139,30 @@ Vendor references: `HANA database name
 <https://docs.aws.amazon.com/redshift/latest/dg/r_System_information_functions.html>`_,
 and `Databricks catalog/schema lookup
 <https://docs.databricks.com/aws/en/query>`_.
+
+
+Metadata fallback behavior
+==========================
+
+Both JDBC and INFORMATION_SCHEMA result mappings use the same defaults for missing catalog
+and schema values. An explicitly requested catalog or literal schema takes precedence; otherwise
+connection getters provide the current scope when JDBC advertises catalog/schema support.
+Drivers that genuinely have no catalogs or schemas retain empty qualifiers. Schema-less drivers
+receive an empty schema for every discovered catalog. Catalog discovery omissions are repaired
+from the current connection catalog or schema rows, preventing orphaned metadata.
+
+In a caller transaction, speculative SQL (including current-context lookup) runs inside a
+savepoint. On query failure the scanner rolls back only to that savepoint before JDBC fallback.
+It never commits, rolls back the whole transaction, or changes auto-commit. Drivers without
+savepoint support skip SQL probes and use JDBC metadata; current context uses connection getters.
+Failures while creating, releasing or rolling back a savepoint are propagated so the scanner
+cannot continue using an uncertain transaction. With auto-commit enabled, normal query fallback
+continues unchanged.
+
+All database profiles have simulated-driver regression coverage for missing catalog/schema
+values, failed probes and absent savepoint support. PostgreSQL additionally has live coverage
+against PostgreSQL 12.10 using drivers 42.7.3 and 42.7.13. Other products require live integration
+checks with their own drivers and server versions.
 
 
 Step 2: Rewrite the Star Operators
@@ -387,3 +416,49 @@ There are TreeBuilder Templates for Ascii Trees, JSON Text and XML Text included
         │  └─test AS b.col1 : Other
         └─col3 AS TimeKeyExpression: CURRENT_TIMESTAMP()
 
+
+
+PostgreSQL transaction regression tests
+=======================================
+
+The optional live tests use a database containing at least one user table in its current schema.
+Set ``POSTGRES_JDBC_URL``, ``POSTGRES_USER`` and ``POSTGRES_PASSWORD`` in the environment,
+then run ``./gradlew test --tests '*PostgreSqlMetaDataTest'``. Credentials are not stored in the
+repository. Tests cover filtered/unfiltered extraction with auto-commit on and off. Transactional
+tests create a temporary marker table and roll it back, checking that scanning neither commits
+nor discards earlier work and that caller savepoints remain valid.
+
+Use ``-PpostgresJdbcVersion=42.7.3`` to run these tests with an older JDBC driver; the default
+is 42.7.13. Live test output records the server/driver versions and extracted table/column counts.
+
+Expression-aware lineage
+------------------------
+
+``JSONObjectTreeBuilder``, ``JsonTreeBuilder`` and ``XmlTreeBuilder`` expose additive
+lineage attributes without changing existing names, aliases or physical column qualifiers:
+
+* ``kind`` distinguishes columns, literals, parameters, functions, operators, CASE and scalar
+  subqueries. Literals carry their SQL ``value`` and ``literalType``; parameters carry a
+  statement-order ``index`` or ``parameterName``.
+* ``expression`` contains JSqlParser's normalized SQL for expressions. Physical column
+  references and star expansion omit it. References to derived columns include their reference
+  text and a ``definition`` describing the nearest defining select item. Defining trees remain
+  nested, including operators and aggregates, through successive CTEs and subqueries.
+* Functions include ``function`` and recognized built-in aggregates include ``aggregate=true``.
+  Analytic functions with OVER include ``window=true``. User-defined aggregate semantics cannot
+  be inferred from the SQL syntax alone.
+* ``role=condition`` marks CASE switches/WHEN conditions, aggregate FILTER predicates, NULLIF's
+  second argument and IF/IIF conditions. CASE results use ``role=value``. Window partition and
+  ordering expressions use ``role=partition`` and ``role=order``. An omitted role means value;
+  consumers propagate each role through its subtree, including derived definitions.
+
+Views registered with ``JdbcMetaData.put(resultSetMetaData, name, errorMessage)`` retain their
+known defining SQL and lineage. Views described only by JDBC columns have no definition.
+The scan does not fetch view SQL automatically. WHERE clauses are not added to the result-column
+lineage; positional parameter indexes still reflect their position in the parsed statement.
+
+``FlattenedColumnBuilder`` keeps its existing ``Map<String, Set<String>>`` of physical column
+dependencies. After conversion, ``getColumnAttributes()`` provides the same top-level attributes
+keyed by result label, including ``expression`` and ``definition``. Literal and parameter leaves
+are excluded from the physical dependency sets. JSON object output retains its nested child
+arrays; JSON text output retains its flat child arrays. SQL text is escaped for both JSON and XML.

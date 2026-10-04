@@ -56,6 +56,9 @@ public class JdbcColumn implements Comparable<JdbcColumn> {
   List<JdbcColumn> childNodes = new ArrayList<>();
 
   private Expression expression;
+  private String definition;
+  private String role;
+  private JdbcResultSetMetaData subqueryMetaData;
 
   /* Each column description has the following columns:
   
@@ -160,8 +163,8 @@ public class JdbcColumn implements Comparable<JdbcColumn> {
   }
 
   public JdbcColumn(String tableName, String columnName, Expression expression) {
-    this("", "", tableName, columnName, Types.OTHER, "Other", 0, 0, 10, columnNullableUnknown, "", "", 0,
-         0, "", "", "", "", "", (short) 0, "", "", expression);
+    this("", "", tableName, columnName, Types.OTHER, "Other", 0, 0, 10, columnNullableUnknown, "",
+        "", 0, 0, "", "", "", "", "", (short) 0, "", "", expression);
   }
 
   public JdbcColumn(String tableName, String columnName) {
@@ -247,7 +250,7 @@ public class JdbcColumn implements Comparable<JdbcColumn> {
       }
 
       return b.toString();
-    } else if (expression!=null) {
+    } else if (expression != null) {
       return expression.getClass().getSimpleName() + ": " + expression;
     } else {
       return tableName + "." + columnName;
@@ -303,6 +306,50 @@ public class JdbcColumn implements Comparable<JdbcColumn> {
 
   public JdbcColumn add(JdbcColumn... children) {
     return add(Arrays.asList(children));
+  }
+
+  /** Copies lineage nodes so references in different roles cannot modify each other. */
+  public JdbcColumn copyLineage() {
+    JdbcColumn copy = new JdbcColumn(tableCatalog, tableSchema, tableName, columnName, dataType,
+        typeName, columnSize, decimalDigits, numericPrecisionRadix, nullable, remarks,
+        columnDefinition, characterOctetLength, ordinalPosition, isNullable, scopeCatalog,
+        scopeSchema, scopeTable, scopeColumn, sourceDataType, isAutomaticIncrement,
+        isGeneratedColumn, expression);
+    copy.definition = definition;
+    copy.role = role;
+    copy.subqueryMetaData = subqueryMetaData;
+    for (JdbcColumn child : childNodes) {
+      copy.add(child.copyLineage());
+    }
+    return copy;
+  }
+
+  /** The scalar query resolved in its original CTE and correlated scope. */
+  public JdbcResultSetMetaData getSubqueryMetaData() {
+    return subqueryMetaData;
+  }
+
+  public JdbcColumn setSubqueryMetaData(JdbcResultSetMetaData subqueryMetaData) {
+    this.subqueryMetaData = subqueryMetaData;
+    return this;
+  }
+
+  public String getDefinition() {
+    return definition;
+  }
+
+  public JdbcColumn setDefinition(String definition) {
+    this.definition = definition;
+    return this;
+  }
+
+  public String getRole() {
+    return role;
+  }
+
+  public JdbcColumn setRole(String role) {
+    this.role = role;
+    return this;
   }
 
   public Expression getExpression() {

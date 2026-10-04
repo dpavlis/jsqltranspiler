@@ -292,11 +292,12 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     //@formatter:off
     String lineage =
             "SELECT\n" +
-            " └─total AS Function Sum\n" +
-            "    └─Addition: colBA + colBB\n" +
-            "       ├─c.colBA → b.colBA : Other\n" +
-            "       └─c.colBB → b.colBB : Other"
-            ;
+            "   └─total AS Function Sum\n" +
+            "      └─Addition: colBA + colBB\n" +
+            "         ├─c.colBA → b.colBA : Other\n" +
+            "         │  └─b.colBA : Other\n" +
+            "         └─c.colBB → b.colBB : Other\n" +
+            "            └─b.colBB : Other";
     //@formatter:on
     assertLineage(sqlStr, lineage);
   }
@@ -363,17 +364,21 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     assertThatResolvesInto(sqlStr, expected);
 
     //@formatter:off
-    String lineage = "SELECT\n" +
-            " └─total AS CaseExpression: CASE WHEN Sum(colBA + colBB) = 0 THEN c.col1 ELSE a.col2 END\n" +
-            "    ├─WhenClause: WHEN Sum(colBA + colBB) = 0 THEN c.col1\n" +
-            "    │  ├─EqualsTo: Sum(colBA + colBB) = 0\n" +
-            "    │  │  ├─Function Sum\n" +
-            "    │  │  │  └─Addition: colBA + colBB\n" +
-            "    │  │  │     ├─c.colBA → b.colBA : Other\n" +
-            "    │  │  │     └─c.colBB → b.colBB : Other\n" +
-            "    │  │  └─LongValue: 0\n" +
-            "    │  └─c.col1 → b.col1 : Other\n" +
-            "    └─a.col2 : Other";
+    String lineage =
+            "SELECT\n" +
+            "   └─total AS CaseExpression: CASE WHEN Sum(colBA + colBB) = 0 THEN c.col1 ELSE a.col2 END\n" +
+            "      ├─WhenClause: WHEN Sum(colBA + colBB) = 0 THEN c.col1\n" +
+            "      │  ├─EqualsTo: Sum(colBA + colBB) = 0\n" +
+            "      │  │  ├─Function Sum\n" +
+            "      │  │  │  └─Addition: colBA + colBB\n" +
+            "      │  │  │     ├─c.colBA → b.colBA : Other\n" +
+            "      │  │  │     │  └─b.colBA : Other\n" +
+            "      │  │  │     └─c.colBB → b.colBB : Other\n" +
+            "      │  │  │        └─b.colBB : Other\n" +
+            "      │  │  └─LongValue: 0\n" +
+            "      │  └─c.col1 → b.col1 : Other\n" +
+            "      │     └─b.col1 : Other\n" +
+            "      └─a.col2 : Other";
     //@formatter:on
 
     assertLineage(sqlStr, lineage);
@@ -393,10 +398,11 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
 
     //@formatter:off
     String lineage =
-            "SELECT\n"
-            + " ├─c.test → b.test : Other\n"
-            + " └─c.colBA → b.colBA : Other\n"
-            ;
+            "SELECT\n" +
+            "   ├─c.test → b.test : Other\n" +
+            "   │  └─b.col1 : Other\n" +
+            "   └─c.colBA → b.colBA : Other\n" +
+            "      └─b.colBA : Other";
     //@formatter:on
 
     assertLineage(sqlStr, lineage);
@@ -550,10 +556,13 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     //@formatter:off
     String lineage =
             "SELECT\n" +
-            " ├─mycte.id → sales.customers.id : Other\n" +
-            " ├─sum AS Function sum\n" +
-            " │  └─mycte.amount → sales.orders.amount : Other\n" +
-            " └─mycte.timestamp1 AS TimeKeyExpression: CURRENT_TIMESTAMP()\n";
+            "   ├─mycte.id → sales.customers.id : Other\n" +
+            "   │  └─sales.customers.id : Other\n" +
+            "   ├─sum AS Function sum\n" +
+            "   │  └─mycte.amount → sales.orders.amount : Other\n" +
+            "   │     └─sales.orders.amount : Other\n" +
+            "   └─mycte.timestamp1 → timestamp1 : Other\n" +
+            "      └─TimeKeyExpression: CURRENT_TIMESTAMP()";
     //@formatter:on
     assertLineage(JdbcMetaData.copyOf(metaData), sqlStr, lineage);
   }
@@ -588,10 +597,13 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     //@formatter:off
     String lineage =
             "SELECT\n" +
-            " ├─mycte.id → sales.customers.id : Other\n" +
-            " ├─sum AS Function sum\n" +
-            " │  └─mycte.amount → sales.orders.amount : Other\n" +
-            " └─mycte.timestamp AS TimeKeyExpression: CURRENT_TIMESTAMP()\n";
+            "   ├─mycte.id → sales.customers.id : Other\n" +
+            "   │  └─sales.customers.id : Other\n" +
+            "   ├─sum AS Function sum\n" +
+            "   │  └─mycte.amount → sales.orders.amount : Other\n" +
+            "   │     └─sales.orders.amount : Other\n" +
+            "   └─mycte.timestamp → timestamp : Other\n" +
+            "      └─TimeKeyExpression: CURRENT_TIMESTAMP()";
     //@formatter:on
     assertLineage(JdbcMetaData.copyOf(metaData), sqlStr, lineage);
   }
@@ -638,11 +650,13 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
 
     //@formatter:off
     String lineage =
-        "SELECT\n" +
-        " ├─mycte.id → sales.customers.id : Other\n" +
-        " ├─sum AS Function sum\n" +
-        " │  └─amount : Unknown Not found in schema\n" +
-        " └─mycte.timestamp AS TimeKeyExpression: CURRENT_TIMESTAMP()";
+            "SELECT\n" +
+            "   ├─mycte.id → sales.customers.id : Other\n" +
+            "   │  └─sales.customers.id : Other\n" +
+            "   ├─sum AS Function sum\n" +
+            "   │  └─amount : Unknown Not found in schema\n" +
+            "   └─mycte.timestamp → timestamp : Other\n" +
+            "      └─TimeKeyExpression: CURRENT_TIMESTAMP()";
     //@formatter:on
     assertLineage(JdbcMetaData.copyOf(metaData), sqlStr, lineage);
 
@@ -657,8 +671,10 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     lineage =
         "SELECT\n" +
         " ├─mycte.id → sales.customers.id : Other\n" +
+        " │  └─sales.customers.id : Other\n" +
         " ├─sum AS Function sum\n" +
-        " └─mycte.timestamp AS TimeKeyExpression: CURRENT_TIMESTAMP()\n";
+        " └─mycte.timestamp → timestamp : Other\n" +
+        "    └─TimeKeyExpression: CURRENT_TIMESTAMP()\n";
     //@formatter:on
     assertLineage(JdbcMetaData.copyOf(metaData), sqlStr, lineage);
   }
@@ -696,10 +712,13 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     //@formatter:off
     String lineage =
             "SELECT\n" +
-            " ├─mycte.id → sales.customers.id : Other\n" +
-            " ├─sum AS Function sum\n" +
-            " │  └─mycte.amount → sales.orders.amount : Other\n" +
-            " └─mycte.timestamp AS TimeKeyExpression: CURRENT_TIMESTAMP()\n";
+            "   ├─mycte.id → sales.customers.id : Other\n" +
+            "   │  └─sales.customers.id : Other\n" +
+            "   ├─sum AS Function sum\n" +
+            "   │  └─mycte.amount → sales.orders.amount : Other\n" +
+            "   │     └─sales.orders.amount : Other\n" +
+            "   └─mycte.timestamp → timestamp : Other\n" +
+            "      └─TimeKeyExpression: CURRENT_TIMESTAMP()";
     //@formatter:on
     assertLineage(JdbcMetaData.copyOf(metaData), sqlStr, lineage);
   }
@@ -735,10 +754,13 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     //@formatter:off
     String lineage =
             "SELECT\n" +
-            " ├─mycte.id → sales.customers.id : Other\n" +
-            " ├─sum AS Function sum\n" +
-            " │  └─mycte.amount → sales.orders.amount : Other\n" +
-            " └─mycte.timestamp AS TimeKeyExpression: CURRENT_TIMESTAMP()\n";
+            "   ├─mycte.id → sales.customers.id : Other\n" +
+            "   │  └─sales.customers.id : Other\n" +
+            "   ├─sum AS Function sum\n" +
+            "   │  └─mycte.amount → sales.orders.amount : Other\n" +
+            "   │     └─sales.orders.amount : Other\n" +
+            "   └─mycte.timestamp → timestamp : Other\n" +
+            "      └─TimeKeyExpression: CURRENT_TIMESTAMP()";
     //@formatter:on
     assertLineage(JdbcMetaData.copyOf(metaData), sqlStr, lineage);
   }
@@ -791,11 +813,19 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     //@formatter:off
     String lineage =
             "SELECT\n" +
-            " ├─yourcte.id → sales.customers.id : Other\n" +
-            " ├─sum AS Function Sum\n" +
-            " │  └─yourcte.amount → sales.orders.amount : Other\n" +
-            " ├─yourcte.timestamp1 AS TimeKeyExpression: CURRENT_TIMESTAMP()\n" +
-            " └─amount2 AS yourcte.amount → sales.orders.amount : Other\n";
+            "   ├─yourcte.id → sales.customers.id : Other\n" +
+            "   │  └─mycte.id → sales.customers.id : Other\n" +
+            "   │     └─sales.customers.id : Other\n" +
+            "   ├─sum AS Function Sum\n" +
+            "   │  └─yourcte.amount → sales.orders.amount : Other\n" +
+            "   │     └─mycte.amount → sales.orders.amount : Other\n" +
+            "   │        └─sales.orders.amount : Other\n" +
+            "   ├─yourcte.timestamp1 → mycte.timestamp1 : Other\n" +
+            "   │  └─mycte.timestamp1 : Other\n" +
+            "   │     └─TimeKeyExpression: CURRENT_TIMESTAMP()\n" +
+            "   └─amount2 AS yourcte.amount → sales.orders.amount : Other\n" +
+            "      └─mycte.amount → sales.orders.amount : Other\n" +
+            "         └─sales.orders.amount : Other";
     //@formatter:on
     assertLineage(JdbcMetaData.copyOf(metaData), sqlStr, lineage);
   }
@@ -836,11 +866,11 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
         ;
 
     String expected =
-          "SELECT\n"
-        + " └─d.colx AS Function SUM\n"
-        + "    ├─a.col1 : Other\n"
-        + "    └─a.col2 : Other"
-        ;
+            "SELECT\n" +
+            "   └─d.colx : Other\n" +
+            "      └─.SUM AS Function SUM\n" +
+            "         ├─a.col1 : Other\n" +
+            "         └─a.col2 : Other";
     //@formatter:on
 
     assertLineage(schemaDefinition, sqlStr, expected);
@@ -1029,53 +1059,77 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     // @formatter:off
     String expected =
             "SELECT\n" +
-            " ├─Function Count\n" +
-            " │  └─customer_id : Unknown Not found in schema\n" +
-            " ├─Function Count\n" +
-            " │  └─order_id : Unknown Not found in schema\n" +
-            " ├─Function Sum\n" +
-            " │  └─total_order_value : Unknown Not found in schema\n" +
-            " ├─Function Avg\n" +
-            " │  └─total_order_value : Unknown Not found in schema\n" +
-            " ├─Function Avg\n" +
-            " │  └─total_orders : Unknown Not found in schema\n" +
-            " ├─Function Avg\n" +
-            " │  └─total_spent : Unknown Not found in schema\n" +
-            " ├─Function Min\n" +
-            " │  └─first_order_date : Unknown Not found in schema\n" +
-            " ├─Function Max\n" +
-            " │  └─last_order_date : Unknown Not found in schema\n" +
-            " ├─Function Avg\n" +
-            " │  └─days_since_first_order : Unknown Not found in schema\n" +
-            " ├─Function Avg\n" +
-            " │  └─.Array_Length AS Function Array_Length\n" +
-            " │     ├─purchased_categories : Unknown Not found in schema\n" +
-            " │     └─LongValue: 1\n" +
-            " ├─customer_order_rate AS Division: om.customers_with_orders::FLOAT / cm.total_customers\n" +
-            " │  ├─Function Count\n" +
-            " │  │  └─customer_id : Unknown Not found in schema\n" +
-            " │  └─Function Count\n" +
-            " │     └─customer_id : Unknown Not found in schema\n" +
-            " ├─daily_revenue AS Division: om.total_revenue / Nullif(Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE), 0)\n" +
-            " │  ├─Function Sum\n" +
-            " │  │  └─total_order_value : Unknown Not found in schema\n" +
-            " │  └─.Nullif AS Function Nullif\n" +
-                    " │     ├─Subtraction: Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE)\n" +
-                    " │     │  ├─Function Max\n" +
-                    " │     │  │  └─last_order_date : Unknown Not found in schema\n" +
-                    " │     │  └─Function Min\n" +
-                    " │     │     └─first_order_date : Unknown Not found in schema\n" +
-                    " │     └─LongValue: 0\n" +
-                    " └─daily_order_rate AS Division: om.total_orders::FLOAT / Nullif(Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE), 0)\n" +
-                    "    ├─Function Count\n" +
-                    "    │  └─order_id : Unknown Not found in schema\n" +
-                    "    └─.Nullif AS Function Nullif\n" +
-                    "       ├─Subtraction: Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE)\n" +
-                    "       │  ├─Function Max\n" +
-                    "       │  │  └─last_order_date : Unknown Not found in schema\n" +
-                    "       │  └─Function Min\n" +
-                    "       │     └─first_order_date : Unknown Not found in schema\n" +
-                    "       └─LongValue: 0\n";
+            "   ├─starbake_analytics.customer_metrics.total_customers → total_customers : Other\n" +
+            "   │  └─Function Count\n" +
+            "   │     └─customer_id : Unknown Not found in schema\n" +
+            "   ├─starbake_analytics.order_metrics.total_orders → total_orders : Other\n" +
+            "   │  └─Function Count\n" +
+            "   │     └─order_id : Unknown Not found in schema\n" +
+            "   ├─starbake_analytics.order_metrics.total_revenue → total_revenue : Other\n" +
+            "   │  └─Function Sum\n" +
+            "   │     └─total_order_value : Unknown Not found in schema\n" +
+            "   ├─starbake_analytics.order_metrics.avg_order_value → avg_order_value : Other\n" +
+            "   │  └─Function Avg\n" +
+            "   │     └─total_order_value : Unknown Not found in schema\n" +
+            "   ├─starbake_analytics.customer_metrics.avg_orders_per_customer → avg_orders_per_customer : Other\n" +
+            "   │  └─Function Avg\n" +
+            "   │     └─total_orders : Unknown Not found in schema\n" +
+            "   ├─starbake_analytics.customer_metrics.avg_spent_per_customer → avg_spent_per_customer : Other\n" +
+            "   │  └─Function Avg\n" +
+            "   │     └─total_spent : Unknown Not found in schema\n" +
+            "   ├─starbake_analytics.customer_metrics.earliest_order_date → earliest_order_date : Other\n" +
+            "   │  └─Function Min\n" +
+            "   │     └─first_order_date : Unknown Not found in schema\n" +
+            "   ├─starbake_analytics.customer_metrics.latest_order_date → latest_order_date : Other\n" +
+            "   │  └─Function Max\n" +
+            "   │     └─last_order_date : Unknown Not found in schema\n" +
+            "   ├─starbake_analytics.customer_metrics.avg_customer_lifetime_days → avg_customer_lifetime_days : Other\n" +
+            "   │  └─Function Avg\n" +
+            "   │     └─days_since_first_order : Unknown Not found in schema\n" +
+            "   ├─starbake_analytics.customer_metrics.avg_categories_per_customer → avg_categories_per_customer : Other\n" +
+            "   │  └─Function Avg\n" +
+            "   │     └─.Array_Length AS Function Array_Length\n" +
+            "   │        ├─purchased_categories : Unknown Not found in schema\n" +
+            "   │        └─LongValue: 1\n" +
+            "   ├─customer_order_rate AS Division: om.customers_with_orders::FLOAT / cm.total_customers\n" +
+            "   │  ├─CastExpression: om.customers_with_orders::FLOAT\n" +
+            "   │  │  └─starbake_analytics.order_metrics.customers_with_orders → customers_with_orders : Other\n" +
+            "   │  │     └─Function Count\n" +
+            "   │  │        └─customer_id : Unknown Not found in schema\n" +
+            "   │  └─starbake_analytics.customer_metrics.total_customers → total_customers : Other\n" +
+            "   │     └─Function Count\n" +
+            "   │        └─customer_id : Unknown Not found in schema\n" +
+            "   ├─daily_revenue AS Division: om.total_revenue / Nullif(Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE), 0)\n" +
+            "   │  ├─starbake_analytics.order_metrics.total_revenue → total_revenue : Other\n" +
+            "   │  │  └─Function Sum\n" +
+            "   │  │     └─total_order_value : Unknown Not found in schema\n" +
+            "   │  └─.Nullif AS Function Nullif\n" +
+            "   │     ├─Subtraction: Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE)\n" +
+            "   │     │  ├─CastExpression: Cast(cm.latest_order_date AS DATE)\n" +
+            "   │     │  │  └─starbake_analytics.customer_metrics.latest_order_date → latest_order_date : Other\n" +
+            "   │     │  │     └─Function Max\n" +
+            "   │     │  │        └─last_order_date : Unknown Not found in schema\n" +
+            "   │     │  └─CastExpression: Cast(cm.earliest_order_date AS DATE)\n" +
+            "   │     │     └─starbake_analytics.customer_metrics.earliest_order_date → earliest_order_date : Other\n" +
+            "   │     │        └─Function Min\n" +
+            "   │     │           └─first_order_date : Unknown Not found in schema\n" +
+            "   │     └─LongValue: 0\n" +
+            "   └─daily_order_rate AS Division: om.total_orders::FLOAT / Nullif(Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE), 0)\n" +
+            "      ├─CastExpression: om.total_orders::FLOAT\n" +
+            "      │  └─starbake_analytics.order_metrics.total_orders → total_orders : Other\n" +
+            "      │     └─Function Count\n" +
+            "      │        └─order_id : Unknown Not found in schema\n" +
+            "      └─.Nullif AS Function Nullif\n" +
+            "         ├─Subtraction: Cast(cm.latest_order_date AS DATE) - Cast(cm.earliest_order_date AS DATE)\n" +
+            "         │  ├─CastExpression: Cast(cm.latest_order_date AS DATE)\n" +
+            "         │  │  └─starbake_analytics.customer_metrics.latest_order_date → latest_order_date : Other\n" +
+            "         │  │     └─Function Max\n" +
+            "         │  │        └─last_order_date : Unknown Not found in schema\n" +
+            "         │  └─CastExpression: Cast(cm.earliest_order_date AS DATE)\n" +
+            "         │     └─starbake_analytics.customer_metrics.earliest_order_date → earliest_order_date : Other\n" +
+            "         │        └─Function Min\n" +
+            "         │           └─first_order_date : Unknown Not found in schema\n" +
+            "         └─LongValue: 0";
     // @formatter:on
     assertLineage(jdbcMetadata, sqlStr, expected);
 
@@ -1122,30 +1176,40 @@ public class JSQLColumnResolverTest extends AbstractColumnResolverTest {
     // @formatter:off
     String expectedASCII =
             "SELECT\n" +
-            " ├─customer_orders.customer_id → starbake.orders.customer_id : long\n" +
-            " ├─customer_name AS .Concat AS Function Concat\n" +
-            " │  ├─starbake.customers.first_name : string\n" +
-            " │  ├─StringValue: ' '\n" +
-            " │  └─starbake.customers.last_name : string\n" +
-            " ├─starbake.customers.email : string\n" +
-            " ├─Function Count\n" +
-            " │  └─starbake.orders.order_id : long\n" +
-            " ├─Function Sum\n" +
-            " │  └─Multiplication: o.quantity * p.price\n" +
-            " │     ├─starbake.orders.quantity : long\n" +
-            " │     └─starbake.products.price : double\n" +
-            " ├─Function Min\n" +
-            " │  └─starbake.orders.order_date : date\n" +
-            " ├─Function Max\n" +
-            " │  └─starbake.orders.order_date : date\n" +
-            " ├─Function Array_Agg\n" +
-            " │  └─starbake.products.category : string\n" +
-            " └─days_since_first_order AS ParenthesedExpressionList: (Cast(co.last_order_date AS DATE) - Cast(co.first_order_date AS DATE))\n" +
-            "    └─Subtraction: Cast(co.last_order_date AS DATE) - Cast(co.first_order_date AS DATE)\n" +
-            "       ├─Function Max\n" +
-            "       │  └─starbake.orders.order_date : date\n" +
-            "       └─Function Min\n" +
-            "          └─starbake.orders.order_date : date\n";
+            "   ├─customer_orders.customer_id → starbake.orders.customer_id : long\n" +
+            "   │  └─starbake.orders.customer_id : long\n" +
+            "   ├─customer_name AS .Concat AS Function Concat\n" +
+            "   │  ├─starbake.customers.first_name : string\n" +
+            "   │  ├─StringValue: ' '\n" +
+            "   │  └─starbake.customers.last_name : string\n" +
+            "   ├─starbake.customers.email : string\n" +
+            "   ├─customer_orders.total_orders → total_orders : Other\n" +
+            "   │  └─Function Count\n" +
+            "   │     └─starbake.orders.order_id : long\n" +
+            "   ├─customer_orders.total_spent → total_spent : Other\n" +
+            "   │  └─Function Sum\n" +
+            "   │     └─Multiplication: o.quantity * p.price\n" +
+            "   │        ├─starbake.orders.quantity : long\n" +
+            "   │        └─starbake.products.price : double\n" +
+            "   ├─customer_orders.first_order_date → first_order_date : Other\n" +
+            "   │  └─Function Min\n" +
+            "   │     └─starbake.orders.order_date : date\n" +
+            "   ├─customer_orders.last_order_date → last_order_date : Other\n" +
+            "   │  └─Function Max\n" +
+            "   │     └─starbake.orders.order_date : date\n" +
+            "   ├─customer_orders.purchased_categories → purchased_categories : Other\n" +
+            "   │  └─Function Array_Agg\n" +
+            "   │     └─starbake.products.category : string\n" +
+            "   └─days_since_first_order AS ParenthesedExpressionList: (Cast(co.last_order_date AS DATE) - Cast(co.first_order_date AS DATE))\n" +
+            "      └─Subtraction: Cast(co.last_order_date AS DATE) - Cast(co.first_order_date AS DATE)\n" +
+            "         ├─CastExpression: Cast(co.last_order_date AS DATE)\n" +
+            "         │  └─customer_orders.last_order_date → last_order_date : Other\n" +
+            "         │     └─Function Max\n" +
+            "         │        └─starbake.orders.order_date : date\n" +
+            "         └─CastExpression: Cast(co.first_order_date AS DATE)\n" +
+            "            └─customer_orders.first_order_date → first_order_date : Other\n" +
+            "               └─Function Min\n" +
+            "                  └─starbake.orders.order_date : date";
     // @formatter:on
     assertLineage(meta, sqlStr, expectedASCII);
   }

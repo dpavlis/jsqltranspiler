@@ -14,10 +14,101 @@
 package ai.starlake.transpiler.schema;
 
 import java.sql.ResultSet;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.Savepoint;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLException;
 import java.util.Locale;
 
 public class JdbcUtils {
+
+  @FunctionalInterface
+  interface MetadataSupplier<T> {
+    T get() throws SQLException;
+  }
+
+  /** A failed savepoint operation must propagate instead of attempting more queries. */
+  static final class MetadataRecoveryException extends SQLException {
+    private static final long serialVersionUID = 1L;
+
+    MetadataRecoveryException(SQLException cause) {
+      super("Cannot safely recover metadata probe transaction", cause);
+    }
+  }
+
+  /** Runs a speculative query without committing or rolling back the caller's earlier work. */
+  static <T> T metadataProbe(Connection conn, MetadataSupplier<T> query) throws SQLException {
+    if (conn.getAutoCommit()) {
+      return query.get();
+    }
+    if (!conn.getMetaData().supportsSavepoints()) {
+      throw new SQLFeatureNotSupportedException(
+          "Skip metadata SQL probe without savepoint support");
+    }
+    Savepoint savepoint;
+    try {
+      savepoint = conn.setSavepoint();
+    } catch (SQLException ex) {
+      throw new MetadataRecoveryException(ex);
+    }
+    T result;
+    try {
+      result = query.get();
+    } catch (SQLException ex) {
+      try {
+        conn.rollback(savepoint);
+        conn.releaseSavepoint(savepoint);
+      } catch (SQLException recovery) {
+        recovery.addSuppressed(ex);
+        throw new MetadataRecoveryException(recovery);
+      }
+      throw ex;
+    }
+    try {
+      conn.releaseSavepoint(savepoint);
+    } catch (SQLException ex) {
+      throw new MetadataRecoveryException(ex);
+    }
+    return result;
+  }
+
+  static String metadataCatalog(DatabaseMetaData metaData, String requestedCatalog)
+      throws SQLException {
+    if (requestedCatalog != null && !requestedCatalog.isEmpty()) {
+      return requestedCatalog;
+    }
+    try {
+      // Respect catalog-less drivers even if they expose a connection database name.
+      if (!DatabaseSpecific.getType(metaData.getDatabaseProductName()).usesJdbcMetadata()
+          && !metaData.supportsCatalogsInTableDefinitions()
+          && !metaData.supportsCatalogsInDataManipulation()) {
+        return "";
+      }
+      String catalog = metaData.getConnection().getCatalog();
+      return catalog == null ? "" : catalog;
+    } catch (SQLFeatureNotSupportedException ex) {
+      return "";
+    }
+  }
+
+  static String metadataSchema(DatabaseMetaData metaData, String schemaPattern, boolean exactSchema)
+      throws SQLException {
+    if (schemaPattern != null && (exactSchema || !schemaPattern.contains("%")
+        && !schemaPattern.contains("_") && !schemaPattern.contains("\\"))) {
+      return schemaPattern;
+    }
+    try {
+      if (!metaData.supportsSchemasInTableDefinitions()
+          && !metaData.supportsSchemasInDataManipulation()) {
+        return "";
+      }
+      String schema = metaData.getConnection().getSchema();
+      return schema == null ? "" : schema;
+    } catch (SQLFeatureNotSupportedException ex) {
+      return "";
+    }
+  }
 
   /**
    * Used for detecting RDBMS type and DB specific handling
@@ -126,6 +217,16 @@ public class JdbcUtils {
         }
       }
       return OTHER;
+    }
+
+    /**
+     * PostgreSQL metadata must not use speculative SQL: an error aborts a caller transaction. Its
+     * JDBC driver also supplies vendor-specific column types and comments.
+     *
+     * @return whether extraction should use JDBC metadata directly
+     */
+    public boolean usesJdbcMetadata() {
+      return this == POSTGRESQL;
     }
 
     public String getCurrentSchemaQuery() {

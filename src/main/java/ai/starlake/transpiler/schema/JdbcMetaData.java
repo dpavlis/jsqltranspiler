@@ -441,17 +441,30 @@ public final class JdbcMetaData implements DatabaseMetaData {
     DatabaseMetaData metaData = conn.getMetaData();
     this.databaseType = JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName());
 
-    try (Statement statement = conn.createStatement();
-        ResultSet rs = statement.executeQuery(this.databaseType.getCurrentSchemaQuery())) {
-      if (rs.next()) {
-        currentCatalogName = JdbcUtils.getStringSafe(rs, 1, "");
-        currentSchemaName = JdbcUtils.getStringSafe(rs, 2, "");
-      } else {
-        throw new SQLException();
-      }
+    try {
+      String[] current = JdbcUtils.metadataProbe(conn, () -> readCurrentContext(conn));
+      currentCatalogName = current[0];
+      currentSchemaName = current[1];
     } catch (SQLException ex) {
+      if (ex instanceof JdbcUtils.MetadataRecoveryException) {
+        throw ex;
+      }
       currentCatalogName = "";
       currentSchemaName = "";
+      if (ex instanceof java.sql.SQLFeatureNotSupportedException) {
+        try {
+          String catalog = conn.getCatalog();
+          currentCatalogName = catalog == null ? "" : catalog;
+        } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
+          // Driver does not expose the current catalog.
+        }
+        try {
+          String schema = conn.getSchema();
+          currentSchemaName = schema == null ? "" : schema;
+        } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
+          // Driver does not expose the current schema.
+        }
+      }
     }
 
     try {
@@ -459,6 +472,9 @@ public final class JdbcMetaData implements DatabaseMetaData {
         put(jdbcCatalog);
       }
     } catch (SQLException ex) {
+      if (ex instanceof JdbcUtils.MetadataRecoveryException) {
+        throw ex;
+      }
       LOGGER.warning("Failed get Catalogs from INFORMATION_SCHEMA, use DatabaseMetaData now.");
       for (JdbcCatalog jdbcCatalog : JdbcCatalog.getCatalogs(metaData)) {
         put(jdbcCatalog);
@@ -467,11 +483,20 @@ public final class JdbcMetaData implements DatabaseMetaData {
 
     try {
       for (JdbcSchema jdbcSchema : JdbcSchema.getSchemasFromInformationSchema(conn)) {
+        if (!catalogs.containsKey(jdbcSchema.tableCatalog)) {
+          put(new JdbcCatalog(jdbcSchema.tableCatalog, catalogSeparator));
+        }
         put(jdbcSchema);
       }
     } catch (SQLException ex) {
+      if (ex instanceof JdbcUtils.MetadataRecoveryException) {
+        throw ex;
+      }
       LOGGER.warning("Failed get Schemas from INFORMATION_SCHEMA, use DatabaseMetaData now.");
       for (JdbcSchema jdbcSchema : JdbcSchema.getSchemas(metaData)) {
+        if (!catalogs.containsKey(jdbcSchema.tableCatalog)) {
+          put(new JdbcCatalog(jdbcSchema.tableCatalog, catalogSeparator));
+        }
         put(jdbcSchema);
       }
     }
@@ -537,6 +562,16 @@ public final class JdbcMetaData implements DatabaseMetaData {
           }
         }
       }
+    }
+  }
+
+  private String[] readCurrentContext(Connection conn) throws SQLException {
+    try (Statement statement = conn.createStatement();
+        ResultSet rs = statement.executeQuery(databaseType.getCurrentSchemaQuery())) {
+      if (!rs.next()) {
+        throw new SQLException("Current catalog/schema query returned no rows");
+      }
+      return new String[] {JdbcUtils.getStringSafe(rs, 1, ""), JdbcUtils.getStringSafe(rs, 2, "")};
     }
   }
 
@@ -744,8 +779,13 @@ public final class JdbcMetaData implements DatabaseMetaData {
             null, "", "");
 
         // add the Lineage Information, 0-Indexed
-        col.add(rsMetaData.columns.get(i - 1).getChildren());
-        col.setExpression(rsMetaData.columns.get(i - 1).getExpression());
+        JdbcColumn definingColumn = rsMetaData.columns.get(i - 1);
+        col.add(definingColumn.copyLineage());
+        if (definingColumn.getExpression() != null) {
+          col.setDefinition(definingColumn.getExpression().toString());
+        }
+        col.setExpression(
+            new Column(new Table(t.tableCatalog, t.tableSchema, t.tableName), finalColumnName));
       }
       put(t);
       return t;
@@ -2101,13 +2141,7 @@ public final class JdbcMetaData implements DatabaseMetaData {
         table.tableType, table.remarks, table.typeCatalog, table.typeSchema, table.typeName,
         table.selfReferenceColName, table.referenceGeneration);
     for (JdbcColumn column : table.columns.values()) {
-      JdbcColumn column1 = new JdbcColumn(column.tableCatalog, column.tableSchema, column.tableName,
-          column.columnName, column.dataType, column.typeName, column.columnSize,
-          column.decimalDigits, column.numericPrecisionRadix, column.nullable, column.remarks,
-          column.columnDefinition, column.characterOctetLength, column.ordinalPosition,
-          column.isNullable, column.scopeCatalog, column.scopeSchema, column.scopeTable,
-          column.scopeColumn, column.sourceDataType, column.isAutomaticIncrement,
-          column.isGeneratedColumn, column.getExpression());
+      JdbcColumn column1 = column.copyLineage();
       table1.add(column1);
     }
     return table1;

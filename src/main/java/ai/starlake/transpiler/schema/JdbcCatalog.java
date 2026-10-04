@@ -46,6 +46,15 @@ public class JdbcCatalog implements Comparable<JdbcCatalog> {
 
   public static Collection<JdbcCatalog> getCatalogsFromInformationSchema(Connection conn)
       throws SQLException {
+    DatabaseMetaData metaData = conn.getMetaData();
+    if (JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName()).usesJdbcMetadata()) {
+      return getCatalogs(metaData);
+    }
+    return JdbcUtils.metadataProbe(conn, () -> readInformationSchema(conn));
+  }
+
+  private static Collection<JdbcCatalog> readInformationSchema(Connection conn)
+      throws SQLException {
     ArrayList<JdbcCatalog> jdbcCatalogs = new ArrayList<>();
 
     String sqlStr =
@@ -78,6 +87,11 @@ public class JdbcCatalog implements Comparable<JdbcCatalog> {
           JdbcCatalog jdbcCatalog = new JdbcCatalog(tableCatalog, catalogSeparator);
           jdbcCatalogs.add(jdbcCatalog);
         }
+      }
+      String currentCatalog = JdbcUtils.metadataCatalog(metaData, null);
+      if (!currentCatalog.isEmpty() && jdbcCatalogs.stream()
+          .noneMatch(catalog -> catalog.tableCatalog.equalsIgnoreCase(currentCatalog))) {
+        jdbcCatalogs.add(new JdbcCatalog(currentCatalog, catalogSeparator));
       }
       // add <empty> catalog as some DBs don't have the concept of catalog for tables
       jdbcCatalogs.add(new JdbcCatalog("", "."));

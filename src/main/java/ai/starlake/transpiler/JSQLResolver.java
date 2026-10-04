@@ -534,7 +534,9 @@ public class JSQLResolver extends JSQLColumResolver {
   public Set<JdbcColumn> flatten(Collection<JdbcColumn> columns) {
     LinkedHashSet<JdbcColumn> flattenedSet = new LinkedHashSet<>();
     for (JdbcColumn column : columns) {
-      if (column.getExpression() instanceof Column) {
+      if (!column.getChildren().isEmpty()) {
+        flattenedSet.addAll(flatten(column.getChildren()));
+      } else if (column.getExpression() instanceof Column) {
         String catalogName =
             column.scopeCatalog != null && !column.scopeCatalog.isEmpty() ? column.scopeCatalog
                 : column.tableCatalog;

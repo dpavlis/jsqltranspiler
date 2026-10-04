@@ -49,6 +49,7 @@ public class JSONObjectTreeBuilder extends TreeBuilder<JSONObject> {
     JSONObject json = new JSONObject();
 
     json.put("name", column.columnName);
+    LineageAttributes.of(column).forEach(json::put);
 
     if (alias != null && !alias.isEmpty()) {
       json.put("alias", alias);
@@ -74,7 +75,9 @@ public class JSONObjectTreeBuilder extends TreeBuilder<JSONObject> {
     if (expression instanceof Select) {
       Select select = (Select) expression;
       try {
-        json.put("subquery", resolver.getLineage(this.getClass(), select));
+        json.put("subquery", column.getSubqueryMetaData() == null
+            ? resolver.getLineage(this.getClass(), select)
+            : new JSONObjectTreeBuilder(column.getSubqueryMetaData()).getConvertedTree(resolver));
       } catch (NoSuchMethodException | InvocationTargetException | InstantiationException
           | IllegalAccessException | SQLException e) {
         throw new RuntimeException(e);

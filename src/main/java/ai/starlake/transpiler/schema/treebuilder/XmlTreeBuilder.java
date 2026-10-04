@@ -32,6 +32,12 @@ public class XmlTreeBuilder extends TreeBuilder<String> {
     super(resultSetMetaData);
   }
 
+  private static String escapeAttribute(Object value) {
+    return String.valueOf(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        .replace("\"", "&quot;").replace("'", "&apos;").replace("\n", "&#10;")
+        .replace("\r", "&#13;").replace("\t", "&#9;");
+  }
+
   private void addIndentation(int indent) {
     xmlBuilder.append("  ".repeat(Math.max(0, indent)));
   }
@@ -63,9 +69,12 @@ public class XmlTreeBuilder extends TreeBuilder<String> {
     xmlBuilder.append("<Column");
 
     if (alias != null && !alias.isEmpty()) {
-      xmlBuilder.append(" alias='").append(alias).append("'");
+      xmlBuilder.append(" alias='").append(escapeAttribute(alias)).append("'");
     }
-    xmlBuilder.append(" name='").append(column.columnName).append("'");
+    xmlBuilder.append(" name='").append(escapeAttribute(column.columnName)).append("'");
+
+    LineageAttributes.of(column).forEach((key, value) -> xmlBuilder.append(" ").append(key)
+        .append("='").append(escapeAttribute(value)).append("'"));
 
     if (column.getExpression() instanceof Column) {
       xmlBuilder.append(" table='").append(JSQLColumResolver
@@ -91,8 +100,10 @@ public class XmlTreeBuilder extends TreeBuilder<String> {
 
       Select select = (Select) expression;
       try {
-        xmlBuilder.append(addIndentation(resolver.getLineage(this.getClass(), select), indent + 2))
-            .append("\n");
+        String subquery =
+            column.getSubqueryMetaData() == null ? resolver.getLineage(this.getClass(), select)
+                : new XmlTreeBuilder(column.getSubqueryMetaData()).getConvertedTree(resolver);
+        xmlBuilder.append(addIndentation(subquery, indent + 2)).append("\n");
       } catch (NoSuchMethodException | InvocationTargetException | InstantiationException
           | IllegalAccessException | SQLException e) {
         throw new RuntimeException(e);

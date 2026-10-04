@@ -6,6 +6,11 @@ Changelog of jsqltranspiler
 
 ### Added
 
+* Expression-aware column lineage in JSON and XML: normalized SQL text, chained definitions,
+  column/literal/parameter/function/operator/CASE/subquery kinds, literal types and parameter
+  identifiers, aggregate/window flags, and condition/value/partition/order roles. Flattened
+  dependency output exposes top-level attributes through `getColumnAttributes()`.
+
 * JDBC metadata configurations for SAP HANA (including the `HDB` driver name), Teradata,
   Db2, MariaDB, BigQuery, Amazon Redshift and Databricks (including `SparkSQL`). Each
   configures current catalog/schema lookup and exact system-schema exclusions. New
@@ -19,6 +24,28 @@ Changelog of jsqltranspiler
   retain unrestricted extraction. Database-specific system-schema exclusions still apply.
 
 ### Fixed
+
+* Preserve defining operators and aggregates through subqueries, CTEs and metadata-defined
+  views instead of flattening their children and dropping the root operation. Preserve lineage
+  when metadata is copied. JSON and XML safely escape expression text. Scalar subqueries
+  serialize their original resolved scope, including CTEs and correlated references; copying
+  their nodes no longer mutates shared source columns and hides dependencies.
+
+* Share missing catalog/schema defaults across JDBC and INFORMATION_SCHEMA extraction paths,
+  using the requested scope or current connection scope when supported by the driver. Drivers
+  without catalogs/schemas keep empty qualifiers. Catalog/schema discovery omissions no longer
+  prevent tables and columns from attaching. Schema-less drivers receive empty schemas for
+  each discovered catalog.
+* Protect speculative metadata/current-context queries with savepoints in caller transactions.
+  Failed probes roll back only their savepoint before JDBC fallback. Without savepoint support,
+  probes are skipped; current context uses connection getters. Savepoint recovery failures
+  propagate instead of issuing further queries. Auto-commit and caller work are preserved.
+
+* PostgreSQL metadata extraction now uses JDBC directly, avoiding unsupported INFORMATION_SCHEMA
+  probes that abort transactions when auto-commit is disabled. Schema catalogs omitted by the
+  PostgreSQL driver are assigned to the connection's current catalog so tables and columns link
+  correctly. Null table/column catalogs from older PostgreSQL drivers also fall back to the
+  requested catalog or current connection catalog. Extraction preserves the caller's auto-commit setting, pending work and savepoints.
 
 * `JdbcTable.getTables` now honors catalog and schema arguments on the INFORMATION_SCHEMA
   path, including for external callers. Filters use bound parameters and catalog identifiers

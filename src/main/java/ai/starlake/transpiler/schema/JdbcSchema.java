@@ -52,6 +52,15 @@ public class JdbcSchema implements Comparable<JdbcSchema> {
 
   public static Collection<JdbcSchema> getSchemasFromInformationSchema(Connection conn)
       throws SQLException {
+    DatabaseMetaData metaData = conn.getMetaData();
+    if (JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName()).usesJdbcMetadata()) {
+      return getSchemas(metaData);
+    }
+    return JdbcUtils.metadataProbe(conn, () -> readInformationSchema(conn));
+  }
+
+  private static Collection<JdbcSchema> readInformationSchema(Connection conn) throws SQLException {
+    String defaultCatalog = JdbcUtils.metadataCatalog(conn.getMetaData(), null);
     ArrayList<JdbcSchema> jdbcSchemas = new ArrayList<>();
 
     String sqlStr =
@@ -62,7 +71,7 @@ public class JdbcSchema implements Comparable<JdbcSchema> {
         // TABLE_SCHEM String => schema name
         String tableSchema = JdbcUtils.getStringSafe(rs, "SCHEMA_NAME");
         // TABLE_CATALOG String => catalog name (maybe null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "CATALOG_NAME", "");
+        String tableCatalog = JdbcUtils.getStringSafe(rs, "CATALOG_NAME", defaultCatalog);
         if (tableSchema != null && !tableSchema.isBlank()) {
           JdbcSchema jdbcSchema = new JdbcSchema(tableSchema, tableCatalog);
           jdbcSchemas.add(jdbcSchema);
@@ -76,15 +85,23 @@ public class JdbcSchema implements Comparable<JdbcSchema> {
   }
 
   public static Collection<JdbcSchema> getSchemas(DatabaseMetaData metaData) throws SQLException {
+    String defaultCatalog = JdbcUtils.metadataCatalog(metaData, null);
     ArrayList<JdbcSchema> jdbcSchemas = new ArrayList<>();
 
+    if (!metaData.supportsSchemasInTableDefinitions()
+        && !metaData.supportsSchemasInDataManipulation()) {
+      for (JdbcCatalog catalog : JdbcCatalog.getCatalogs(metaData)) {
+        jdbcSchemas.add(new JdbcSchema("", catalog.tableCatalog));
+      }
+      return jdbcSchemas;
+    }
     try (ResultSet rs = metaData.getSchemas();) {
 
       while (rs.next()) {
         // TABLE_SCHEM String => schema name
         String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM");
         // TABLE_CATALOG String => catalog name (maybe null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CATALOG", "");
+        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CATALOG", defaultCatalog);
         if (tableSchema != null && !tableSchema.isBlank()) {
           JdbcSchema jdbcSchema = new JdbcSchema(tableSchema, tableCatalog);
           jdbcSchemas.add(jdbcSchema);

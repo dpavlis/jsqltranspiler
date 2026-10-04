@@ -15,6 +15,12 @@ import java.util.Set;
 
 public class FlattenedColumnBuilder extends TreeBuilder<Map<String, Set<String>>> {
   private JSQLColumResolver resolver;
+  private final Map<String, Map<String, Object>> columnAttributes = new LinkedHashMap<>();
+
+  /** Top-level expression attributes; the dependency map's existing API is unchanged. */
+  public Map<String, Map<String, Object>> getColumnAttributes() {
+    return java.util.Collections.unmodifiableMap(columnAttributes);
+  }
 
   public FlattenedColumnBuilder(JdbcResultSetMetaData resultSetMetaData) {
     super(resultSetMetaData);
@@ -35,7 +41,9 @@ public class FlattenedColumnBuilder extends TreeBuilder<Map<String, Set<String>>
     // If it's a subquery, resolve it and collect its dependencies
     if (expression instanceof Select) {
       Select select = (Select) expression;
-      JdbcResultSetMetaData subqueryMetaData = resolver.getResultSetMetaData(select);
+      JdbcResultSetMetaData subqueryMetaData =
+          column.getSubqueryMetaData() == null ? resolver.getResultSetMetaData(select)
+              : column.getSubqueryMetaData();
 
       // Recursively collect dependencies from all columns in the subquery
       for (JdbcColumn subColumn : subqueryMetaData.getColumns()) {
@@ -65,6 +73,7 @@ public class FlattenedColumnBuilder extends TreeBuilder<Map<String, Set<String>>
   @Override
   public Map<String, Set<String>> getConvertedTree(JSQLColumResolver resolver) throws SQLException {
     this.resolver = resolver;
+    columnAttributes.clear();
 
     Map<String, Set<String>> dependencyMap = new LinkedHashMap<>();
 
@@ -87,6 +96,7 @@ public class FlattenedColumnBuilder extends TreeBuilder<Map<String, Set<String>>
       }
 
       dependencyMap.put(key, dependencies);
+      columnAttributes.put(key, LineageAttributes.of(column));
     }
 
     return dependencyMap;

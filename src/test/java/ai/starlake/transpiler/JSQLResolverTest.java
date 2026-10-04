@@ -797,7 +797,7 @@ class JSQLResolverTest extends AbstractColumnResolverTest {
         "SELECT a.col1 FROM a WHERE EXISTS (SELECT b.col1 FROM b WHERE b.col2 = a.col2)";
 
     // a.col2 is the correlated reference: the outer table is in scope inside the sub query
-    String[][] expectedColumns = {{"a", "col1"}, {"b", "col2"}, {"a", "col2"}};
+    String[][] expectedColumns = {{"a", "col1"}, {"b", "col1"}, {"b", "col2"}, {"a", "col2"}};
 
     JSQLResolver resolver = new JSQLResolver(schemaDefinition);
     assertThatTableAndColumnsMatch(resolver.resolve(sqlStr), expectedColumns);
@@ -810,7 +810,7 @@ class JSQLResolverTest extends AbstractColumnResolverTest {
     String sqlStr =
         "SELECT a.col1 FROM a WHERE a.col1 IN (SELECT b.col1 FROM b WHERE b.col2 = a.col2)";
 
-    String[][] expectedColumns = {{"a", "col1"}, {"b", "col2"}, {"a", "col2"}};
+    String[][] expectedColumns = {{"a", "col1"}, {"b", "col1"}, {"b", "col2"}, {"a", "col2"}};
 
     JSQLResolver resolver = new JSQLResolver(schemaDefinition);
     assertThatTableAndColumnsMatch(resolver.resolve(sqlStr), expectedColumns);
@@ -836,7 +836,7 @@ class JSQLResolverTest extends AbstractColumnResolverTest {
         "SELECT x.col1 FROM a x WHERE EXISTS (SELECT y.col1 FROM b y WHERE y.col2 = x.col2)";
 
     // reported against the real table names, not the aliases
-    String[][] expectedColumns = {{"a", "col1"}, {"b", "col2"}, {"a", "col2"}};
+    String[][] expectedColumns = {{"a", "col1"}, {"b", "col1"}, {"b", "col2"}, {"a", "col2"}};
 
     JSQLResolver resolver = new JSQLResolver(schemaDefinition);
     assertThatTableAndColumnsMatch(resolver.resolve(sqlStr), expectedColumns);
@@ -874,7 +874,7 @@ class JSQLResolverTest extends AbstractColumnResolverTest {
 
     String sqlStr = "SELECT a.col1 FROM a WHERE a.col1 IN (SELECT b.col1 FROM b WHERE b.col2 = 1)";
 
-    String[][] expectedColumns = {{"a", "col1"}, {"b", "col2"}};
+    String[][] expectedColumns = {{"a", "col1"}, {"b", "col1"}, {"b", "col2"}};
 
     JSQLResolver resolver = new JSQLResolver(schemaDefinition);
     assertThatTableAndColumnsMatch(resolver.resolve(sqlStr), expectedColumns);
