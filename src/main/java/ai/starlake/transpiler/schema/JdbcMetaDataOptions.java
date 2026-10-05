@@ -21,6 +21,7 @@ public final class JdbcMetaDataOptions {
   boolean columnDetails = true;
   boolean indices;
   boolean allCatalogs;
+  JdbcMetaDataProgress progress;
 
   public static JdbcMetaDataOptions defaults() {
     return new JdbcMetaDataOptions();
@@ -34,7 +35,21 @@ public final class JdbcMetaDataOptions {
   JdbcMetaDataOptions copy() {
     return new JdbcMetaDataOptions().setPrimaryKeys(primaryKeys).setForeignKeys(foreignKeys)
         .setComments(comments).setColumnDetails(columnDetails).setIndices(indices)
-        .setAllCatalogs(allCatalogs);
+        .setAllCatalogs(allCatalogs).setProgress(progress);
+  }
+
+  /** Set a synchronous extraction listener; throwing from it aborts extraction. */
+  public JdbcMetaDataOptions setProgress(JdbcMetaDataProgress progress) {
+    this.progress = progress;
+    return this;
+  }
+
+  public JdbcMetaDataOptions withProgress(JdbcMetaDataProgress progress) {
+    return setProgress(progress);
+  }
+
+  public JdbcMetaDataProgress getProgress() {
+    return progress;
   }
 
   /** Allow catalog-less schema filters to match every visible catalog. */

@@ -20,6 +20,10 @@ Changelog of jsqltranspiler
 
 ### Added
 
+* Optional synchronous JDBC extraction progress via `JdbcMetaDataOptions.setProgress` or
+  `withProgress`. Callbacks report discovery and enrichment phases between JDBC calls;
+  throwing a runtime exception cancels extraction and propagates the same exception to the caller.
+
 * Optional Oracle 23 and SQL Server 2022 live catalog regression tests, configured through a
   Git-ignored local properties file. Isolated fixtures exercise enriched metadata, JSON,
   transaction preservation and constant query counts as table counts grow.

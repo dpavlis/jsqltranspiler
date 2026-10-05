@@ -50,51 +50,83 @@ final class JdbcKeyExtractor {
         if (schema.tables.isEmpty() || !type.processSchema(schema.tableSchema)) {
           continue;
         }
-        if (options.primaryKeys && !bulkPrimaryKeys(conn, type, schema) && !probe(conn, () -> {
-          try (ResultSet rs =
-              md.getPrimaryKeys(jdbcCatalog(type, schema), schema.tableSchema, null)) {
-            readPrimaryKeys(rs, schema, false);
-          }
-          return null;
-        })) {
-          LOGGER.fine("Schema-wide primary keys unsupported; use per-table JDBC metadata");
-          for (JdbcTable table : schema.tables.values()) {
-            optionalJdbc(conn, () -> {
-              table.getPrimaryKey(md);
-              return null;
-            });
+        int total = schema.tables.size();
+        if (options.primaryKeys) {
+          report(options, JdbcMetaDataProgress.Phase.PRIMARY_KEYS, schema, null, 0, total);
+          if (bulkPrimaryKeys(conn, type, schema) || probe(conn, () -> {
+            try (ResultSet rs =
+                md.getPrimaryKeys(jdbcCatalog(type, schema), schema.tableSchema, null)) {
+              readPrimaryKeys(rs, schema, false);
+            }
+            return null;
+          })) {
+            report(options, JdbcMetaDataProgress.Phase.PRIMARY_KEYS, schema, null, total, total);
+          } else {
+            LOGGER.fine("Schema-wide primary keys unsupported; use per-table JDBC metadata");
+            int done = 0;
+            for (JdbcTable table : schema.tables.values()) {
+              optionalJdbc(conn, () -> {
+                table.getPrimaryKey(md);
+                return null;
+              });
+              report(options, JdbcMetaDataProgress.Phase.PRIMARY_KEYS, schema, table.tableName,
+                  ++done, total);
+            }
           }
         }
-        if (options.foreignKeys && !bulkForeignKeys(conn, type, schema) && !probe(conn, () -> {
-          try (ResultSet rs =
-              md.getImportedKeys(jdbcCatalog(type, schema), schema.tableSchema, null)) {
-            readForeignKeys(rs, schema);
-          }
-          return null;
-        })) {
-          LOGGER.fine("Schema-wide imported keys unsupported; use per-table JDBC metadata");
-          for (JdbcTable table : schema.tables.values()) {
-            optionalJdbc(conn, () -> {
-              try (ResultSet rs = md.getImportedKeys(jdbcCatalog(type, schema), table.tableSchema,
-                  table.tableName)) {
-                readForeignKeys(rs, schema);
-              }
-              return null;
-            });
+        if (options.foreignKeys) {
+          report(options, JdbcMetaDataProgress.Phase.FOREIGN_KEYS, schema, null, 0, total);
+          if (bulkForeignKeys(conn, type, schema) || probe(conn, () -> {
+            try (ResultSet rs =
+                md.getImportedKeys(jdbcCatalog(type, schema), schema.tableSchema, null)) {
+              readForeignKeys(rs, schema);
+            }
+            return null;
+          })) {
+            report(options, JdbcMetaDataProgress.Phase.FOREIGN_KEYS, schema, null, total, total);
+          } else {
+            LOGGER.fine("Schema-wide imported keys unsupported; use per-table JDBC metadata");
+            int done = 0;
+            for (JdbcTable table : schema.tables.values()) {
+              optionalJdbc(conn, () -> {
+                try (ResultSet rs = md.getImportedKeys(jdbcCatalog(type, schema), table.tableSchema,
+                    table.tableName)) {
+                  readForeignKeys(rs, schema);
+                }
+                return null;
+              });
+              report(options, JdbcMetaDataProgress.Phase.FOREIGN_KEYS, schema, table.tableName,
+                  ++done, total);
+            }
           }
         }
         if (options.comments || options.columnDetails) {
+          JdbcMetaDataProgress.Phase phase = options.comments ? JdbcMetaDataProgress.Phase.COMMENTS
+              : JdbcMetaDataProgress.Phase.COLUMN_DETAILS;
+          report(options, phase, schema, null, 0, total);
           enrichDetails(conn, type, schema, options);
+          report(options, phase, schema, null, total, total);
         }
         if (options.indices) {
+          report(options, JdbcMetaDataProgress.Phase.INDICES, schema, null, 0, total);
+          int done = 0;
           for (JdbcTable table : schema.tables.values()) {
             optionalJdbc(conn, () -> {
               table.getIndices(md, true);
               return null;
             });
+            report(options, JdbcMetaDataProgress.Phase.INDICES, schema, table.tableName, ++done,
+                total);
           }
         }
       }
+    }
+  }
+
+  private static void report(JdbcMetaDataOptions options, JdbcMetaDataProgress.Phase phase,
+      JdbcSchema schema, String table, int done, int total) {
+    if (options.progress != null) {
+      options.progress.progress(phase, schema.tableCatalog, schema.tableSchema, table, done, total);
     }
   }
 

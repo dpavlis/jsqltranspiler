@@ -440,12 +440,14 @@ public final class JdbcMetaData implements DatabaseMetaData {
   /**
    * Extracts selected schemas with opt-in keys, comments, column details and indices. Options are
    * copied; null uses defaults. Schema filtering also restricts enrichment, but imported keys may
-   * reference tables outside the selected schemas. Existing overloads use options.none().
+   * reference tables outside the selected schemas. Existing overloads use options.none(). A
+   * progress listener runs synchronously between JDBC calls and may throw to abort extraction.
    *
    * @param conn physical database connection
    * @param schemaPatterns schema or catalog.schema LIKE patterns; null/empty selects all
    * @param options enrichment settings; null enables defaults
    * @throws SQLException when extraction or transaction recovery fails
+   * @throws RuntimeException when the progress listener aborts extraction (propagated unchanged)
    */
   public JdbcMetaData(Connection conn, Collection<String> schemaPatterns,
       JdbcMetaDataOptions options) throws SQLException {
@@ -509,6 +511,10 @@ public final class JdbcMetaData implements DatabaseMetaData {
       currentCatalogName = "";
     }
 
+    JdbcMetaDataProgress progress = extractionOptions.getProgress();
+    if (progress != null) {
+      progress.progress(JdbcMetaDataProgress.Phase.CATALOGS, null, null, null, 0, -1);
+    }
     try {
       for (JdbcCatalog jdbcCatalog : JdbcCatalog.getCatalogsFromInformationSchema(conn)) {
         put(jdbcCatalog);
@@ -524,6 +530,12 @@ public final class JdbcMetaData implements DatabaseMetaData {
       for (JdbcCatalog jdbcCatalog : JdbcCatalog.getCatalogs(metaData)) {
         put(jdbcCatalog);
       }
+    }
+
+    if (progress != null) {
+      int count = catalogs.size();
+      progress.progress(JdbcMetaDataProgress.Phase.CATALOGS, null, null, null, count, count);
+      progress.progress(JdbcMetaDataProgress.Phase.SCHEMAS, null, null, null, 0, -1);
     }
 
     // Catalog-less filters default to the connection's catalog. An empty filter still scans all.
@@ -590,6 +602,13 @@ public final class JdbcMetaData implements DatabaseMetaData {
 
     }
 
+    if (progress != null) {
+      int count = 0;
+      for (JdbcCatalog catalog : catalogs.values()) {
+        count += catalog.schemas.size();
+      }
+      progress.progress(JdbcMetaDataProgress.Phase.SCHEMAS, null, null, null, count, count);
+    }
     List<JdbcSchema> selectedSchemas = new ArrayList<>();
     if (!patterns.isEmpty()) {
       for (JdbcCatalog catalog : catalogs.values()) {
@@ -615,13 +634,26 @@ public final class JdbcMetaData implements DatabaseMetaData {
         }
       }
     }
+    boolean unfiltered = patterns.isEmpty() && !databaseType.usesCatalogScopedJdbcMetadata();
+    int total = unfiltered ? 1 : selectedSchemas.size();
+    if (progress != null) {
+      progress.progress(JdbcMetaDataProgress.Phase.TABLES, null, null, null, 0, total);
+    }
     Collection<JdbcTable> tables = new ArrayList<>();
-    if (patterns.isEmpty() && !databaseType.usesCatalogScopedJdbcMetadata()) {
+    if (unfiltered) {
       tables = JdbcTable.getTables(metaData, null, null);
+      if (progress != null) {
+        progress.progress(JdbcMetaDataProgress.Phase.TABLES, null, null, null, 1, 1);
+      }
     } else {
+      int done = 0;
       for (JdbcSchema schema : selectedSchemas) {
         tables
             .addAll(JdbcTable.getTablesInSchema(metaData, schema.tableCatalog, schema.tableSchema));
+        if (progress != null) {
+          progress.progress(JdbcMetaDataProgress.Phase.TABLES, schema.tableCatalog,
+              schema.tableSchema, null, ++done, total);
+        }
       }
     }
     for (JdbcTable jdbcTable : tables) {
@@ -636,13 +668,24 @@ public final class JdbcMetaData implements DatabaseMetaData {
       }
     }
 
+    if (progress != null) {
+      progress.progress(JdbcMetaDataProgress.Phase.COLUMNS, null, null, null, 0, total);
+    }
     Collection<JdbcColumn> columns = new ArrayList<>();
-    if (patterns.isEmpty() && !databaseType.usesCatalogScopedJdbcMetadata()) {
+    if (unfiltered) {
       columns = JdbcTable.getColumns(metaData);
+      if (progress != null) {
+        progress.progress(JdbcMetaDataProgress.Phase.COLUMNS, null, null, null, 1, 1);
+      }
     } else {
+      int done = 0;
       for (JdbcSchema schema : selectedSchemas) {
         columns.addAll(
             JdbcTable.getColumnsInSchema(metaData, schema.tableCatalog, schema.tableSchema));
+        if (progress != null) {
+          progress.progress(JdbcMetaDataProgress.Phase.COLUMNS, schema.tableCatalog,
+              schema.tableSchema, null, ++done, total);
+        }
       }
     }
     for (JdbcColumn column : columns) {
@@ -671,6 +714,15 @@ public final class JdbcMetaData implements DatabaseMetaData {
     normalizeCurrentCatalog(!metaData.supportsCatalogsInTableDefinitions()
         && !metaData.supportsCatalogsInDataManipulation());
     JdbcKeyExtractor.enrich(conn, this, extractionOptions);
+    if (progress != null) {
+      int count = 0;
+      for (JdbcCatalog catalog : catalogs.values()) {
+        for (JdbcSchema schema : catalog.schemas.values()) {
+          count += schema.tables.size();
+        }
+      }
+      progress.progress(JdbcMetaDataProgress.Phase.DONE, null, null, null, count, count);
+    }
 
   }
 
