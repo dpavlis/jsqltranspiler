@@ -9,6 +9,17 @@
 [![Issues](https://img.shields.io/github/issues/starlake-ai/jsqltranspiler)](https://github.com/starlake-ai/jsqltranspiler/issues)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://egghead.io/courses/how-to-contribute-to-an-open-source-project-on-github?af=5236ad)
 
+## Why this fork
+
+This fork of [starlake-ai/jsqltranspiler](https://github.com/starlake-ai/jsqltranspiler) focuses on **data lineage** over live database catalogs.
+
+- **Expression lineage.** JSON and XML lineage keep the full expression tree: functions, operators, `CASE`, literals and parameters, with aggregate and window flags and roles such as condition, partition and order. The tree survives subqueries, CTEs and views instead of being flattened into a list of source columns.
+- **Richer database catalog.** `JdbcMetaData` can read a selected subset of schemas (with `%`/`_` patterns) instead of the whole database. Optionally it also reads primary and foreign keys, comments, column defaults, identity and generated flags, and indexes. Keys are read with one query per schema, not one per table. The catalog round-trips through JSON, and extraction reports progress and can be cancelled.
+- **Safe on real connections.** Extraction preserves the caller's transaction, auto-commit setting and pending work. Speculative queries run under savepoints, with JDBC fallbacks when `INFORMATION_SCHEMA` isn't usable.
+- **Tested against mainstream databases.** Live regression tests run against PostgreSQL, Oracle 23, SQL Server 2022, Db2, MySQL and Snowflake, plus embedded DuckDB and H2. The tests check enriched metadata, JSON round trips, transaction preservation, and query counts that stay constant as tables are added. Metadata support also covers MariaDB, SAP HANA, Teradata, BigQuery, Redshift and Databricks. Live tests are configured in a local, Git-ignored `live-databases.properties`; see [`live-databases.properties.example`](live-databases.properties.example).
+
+The project builds and runs on Java 17 and tracks recent JSqlParser releases. See [CHANGELOG.md](CHANGELOG.md) for details.
+
 A pure Java stand-alone SQL Transpiler, Column- and Lineage Resolver for translating various large RDBMS SQL Dialects into a few smaller RDBMS Dialects for Unit Testing. Based on JSQLParser.
 
 Supports `SELECT` queries as well as `INSERT`, `UPDATE`, `DELETE` and `MERGE` statements.
