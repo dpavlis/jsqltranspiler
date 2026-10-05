@@ -20,6 +20,7 @@ public final class JdbcMetaDataOptions {
   boolean comments = true;
   boolean columnDetails = true;
   boolean indices;
+  boolean allCatalogs;
 
   public static JdbcMetaDataOptions defaults() {
     return new JdbcMetaDataOptions();
@@ -32,7 +33,18 @@ public final class JdbcMetaDataOptions {
 
   JdbcMetaDataOptions copy() {
     return new JdbcMetaDataOptions().setPrimaryKeys(primaryKeys).setForeignKeys(foreignKeys)
-        .setComments(comments).setColumnDetails(columnDetails).setIndices(indices);
+        .setComments(comments).setColumnDetails(columnDetails).setIndices(indices)
+        .setAllCatalogs(allCatalogs);
+  }
+
+  /** Allow catalog-less schema filters to match every visible catalog. */
+  public JdbcMetaDataOptions setAllCatalogs(boolean enabled) {
+    allCatalogs = enabled;
+    return this;
+  }
+
+  public boolean isAllCatalogs() {
+    return allCatalogs;
   }
 
   public boolean isPrimaryKeys() {

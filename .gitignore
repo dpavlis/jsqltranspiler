@@ -57,3 +57,4 @@ src/test/resources/ai/starlake/transpiler/tickitdb.zip
 
 # Local live JDBC test endpoints and credentials
 /live-databases.properties
+SPEC*.md

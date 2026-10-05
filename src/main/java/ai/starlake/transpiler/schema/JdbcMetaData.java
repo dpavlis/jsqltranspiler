@@ -470,20 +470,43 @@ public final class JdbcMetaData implements DatabaseMetaData {
       }
       currentCatalogName = "";
       currentSchemaName = "";
-      if (ex instanceof java.sql.SQLFeatureNotSupportedException) {
-        try {
-          String catalog = conn.getCatalog();
-          currentCatalogName = catalog == null ? "" : catalog;
-        } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
-          // Driver does not expose the current catalog.
-        }
-        try {
-          String schema = conn.getSchema();
-          currentSchemaName = schema == null ? "" : schema;
-        } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
-          // Driver does not expose the current schema.
+      SQLException getterFailure = null;
+      try {
+        String catalog = conn.getCatalog();
+        currentCatalogName = catalog == null ? "" : catalog;
+      } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
+        // Driver does not expose the current catalog.
+      } catch (SQLException failure) {
+        getterFailure = failure;
+      }
+      try {
+        String schema = conn.getSchema();
+        currentSchemaName = schema == null ? "" : schema;
+      } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
+        // Driver does not expose the current schema.
+      } catch (SQLException failure) {
+        if (getterFailure == null) {
+          getterFailure = failure;
+        } else if (failure != getterFailure) {
+          getterFailure.addSuppressed(failure);
         }
       }
+      if (getterFailure != null) {
+        if (getterFailure != ex) {
+          getterFailure.addSuppressed(ex);
+        }
+        throw getterFailure;
+      }
+    }
+
+    if (!metaData.supportsSchemasInTableDefinitions()
+        && !metaData.supportsSchemasInDataManipulation()) {
+      currentSchemaName = "";
+    }
+
+    if (databaseType.isMySqlFamily() && !metaData.supportsCatalogsInTableDefinitions()
+        && !metaData.supportsCatalogsInDataManipulation()) {
+      currentCatalogName = "";
     }
 
     try {
@@ -494,30 +517,77 @@ public final class JdbcMetaData implements DatabaseMetaData {
       if (ex instanceof JdbcUtils.MetadataRecoveryException) {
         throw ex;
       }
-      LOGGER.warning("Failed get Catalogs from INFORMATION_SCHEMA, use DatabaseMetaData now.");
+      if (databaseType.usesJdbcMetadata()) {
+        throw ex;
+      }
+      LOGGER.fine("Failed get Catalogs from INFORMATION_SCHEMA, use DatabaseMetaData now.");
       for (JdbcCatalog jdbcCatalog : JdbcCatalog.getCatalogs(metaData)) {
         put(jdbcCatalog);
       }
     }
 
-    try {
-      for (JdbcSchema jdbcSchema : JdbcSchema.getSchemasFromInformationSchema(conn)) {
-        if (!catalogs.containsKey(jdbcSchema.tableCatalog)) {
-          put(new JdbcCatalog(jdbcSchema.tableCatalog, catalogSeparator));
+    // Catalog-less filters default to the connection's catalog. An empty filter still scans all.
+    if (!extractionOptions.allCatalogs
+        && patterns.stream().anyMatch(pattern -> pattern[0] == null)) {
+      String filterCatalog = JdbcUtils.metadataCatalog(metaData, null);
+      if (!filterCatalog.isEmpty()) {
+        for (String[] pattern : patterns) {
+          if (pattern[0] == null) {
+            pattern[0] = filterCatalog;
+          }
         }
-        put(jdbcSchema);
       }
-    } catch (SQLException ex) {
-      if (ex instanceof JdbcUtils.MetadataRecoveryException) {
-        throw ex;
-      }
-      LOGGER.warning("Failed get Schemas from INFORMATION_SCHEMA, use DatabaseMetaData now.");
-      for (JdbcSchema jdbcSchema : JdbcSchema.getSchemas(metaData)) {
-        if (!catalogs.containsKey(jdbcSchema.tableCatalog)) {
-          put(new JdbcCatalog(jdbcSchema.tableCatalog, catalogSeparator));
+    }
+    if (databaseType.usesCatalogScopedJdbcMetadata()) {
+      CaseInsensitiveLinkedHashMap<String> candidates = new CaseInsensitiveLinkedHashMap<>();
+      if (patterns.isEmpty() || patterns.stream().anyMatch(pattern -> pattern[0] == null)) {
+        for (JdbcCatalog catalog : catalogs.values()) {
+          if (!catalog.tableCatalog.isEmpty()) {
+            candidates.put(catalog.tableCatalog, catalog.tableCatalog);
+          }
         }
-        put(jdbcSchema);
+        if (!currentCatalogName.isEmpty()) {
+          candidates.putIfAbsent(currentCatalogName, currentCatalogName);
+        }
       }
+      for (String[] pattern : patterns) {
+        if (pattern[0] != null) {
+          JdbcCatalog knownCatalog = catalogs.get(pattern[0]);
+          String catalog = knownCatalog == null ? pattern[0] : knownCatalog.tableCatalog;
+          candidates.putIfAbsent(catalog, catalog);
+        }
+      }
+      for (JdbcSchema schema : JdbcSchema.getSchemas(metaData, candidates.values(), patterns,
+          catalogs.keySet())) {
+        if (!catalogs.containsKey(schema.tableCatalog)) {
+          put(new JdbcCatalog(schema.tableCatalog, catalogSeparator));
+        }
+        put(schema);
+      }
+    } else {
+      try {
+        for (JdbcSchema jdbcSchema : JdbcSchema.getSchemasFromInformationSchema(conn)) {
+          if (!catalogs.containsKey(jdbcSchema.tableCatalog)) {
+            put(new JdbcCatalog(jdbcSchema.tableCatalog, catalogSeparator));
+          }
+          put(jdbcSchema);
+        }
+      } catch (SQLException ex) {
+        if (ex instanceof JdbcUtils.MetadataRecoveryException) {
+          throw ex;
+        }
+        if (databaseType.usesJdbcMetadata()) {
+          throw ex;
+        }
+        LOGGER.fine("Failed get Schemas from INFORMATION_SCHEMA, use DatabaseMetaData now.");
+        for (JdbcSchema jdbcSchema : JdbcSchema.getSchemas(metaData)) {
+          if (!catalogs.containsKey(jdbcSchema.tableCatalog)) {
+            put(new JdbcCatalog(jdbcSchema.tableCatalog, catalogSeparator));
+          }
+          put(jdbcSchema);
+        }
+      }
+
     }
 
     List<JdbcSchema> selectedSchemas = new ArrayList<>();
@@ -533,11 +603,20 @@ public final class JdbcMetaData implements DatabaseMetaData {
           }
         }
       }
-      catalogs.values().removeIf(catalog -> !catalog.tableCatalog.isEmpty()
-          && catalog.schemas.values().stream().noneMatch(schema -> !schema.tableSchema.isEmpty()));
+      catalogs.values().removeIf(catalog -> !catalog.tableCatalog.isEmpty() && catalog.schemas
+          .values().stream().noneMatch(schema -> matchesSchema(patterns, schema)));
+    }
+    if (patterns.isEmpty() && databaseType.usesCatalogScopedJdbcMetadata()) {
+      for (JdbcCatalog catalog : catalogs.values()) {
+        for (JdbcSchema schema : catalog.schemas.values()) {
+          if (databaseType.processSchema(schema.tableSchema)) {
+            selectedSchemas.add(schema);
+          }
+        }
+      }
     }
     Collection<JdbcTable> tables = new ArrayList<>();
-    if (patterns.isEmpty()) {
+    if (patterns.isEmpty() && !databaseType.usesCatalogScopedJdbcMetadata()) {
       tables = JdbcTable.getTables(metaData, null, null);
     } else {
       for (JdbcSchema schema : selectedSchemas) {
@@ -558,7 +637,7 @@ public final class JdbcMetaData implements DatabaseMetaData {
     }
 
     Collection<JdbcColumn> columns = new ArrayList<>();
-    if (patterns.isEmpty()) {
+    if (patterns.isEmpty() && !databaseType.usesCatalogScopedJdbcMetadata()) {
       columns = JdbcTable.getColumns(metaData);
     } else {
       for (JdbcSchema schema : selectedSchemas) {
@@ -577,13 +656,45 @@ public final class JdbcMetaData implements DatabaseMetaData {
         if (schema != null) {
           JdbcTable table = schema.get(tableName);
           if (table != null) {
+            // JDBC SCOPE_* describes REF types; ordinary columns still need a lineage anchor.
+            if (column.scopeTable == null || column.scopeTable.isEmpty()) {
+              column.scopeCatalog = table.tableCatalog;
+              column.scopeSchema = table.tableSchema;
+              column.scopeTable = table.tableName;
+              column.scopeColumn = column.columnName;
+            }
             table.columns.put(column.columnName, column);
           }
         }
       }
     }
+    normalizeCurrentCatalog(!metaData.supportsCatalogsInTableDefinitions()
+        && !metaData.supportsCatalogsInDataManipulation());
     JdbcKeyExtractor.enrich(conn, this, extractionOptions);
 
+  }
+
+  /** Align the resolution context with JDBC catalog keys, including older catalog-less exports. */
+  void normalizeCurrentCatalog(boolean catalogLess) {
+    boolean hasTables = false;
+    boolean allTablesCatalogLess = true;
+    for (JdbcCatalog catalog : catalogs.values()) {
+      for (JdbcSchema schema : catalog.schemas.values()) {
+        for (JdbcTable table : schema.tables.values()) {
+          hasTables = true;
+          allTablesCatalogLess &= table.tableCatalog.isEmpty();
+        }
+      }
+    }
+    JdbcCatalog emptyCatalog = catalogs.get("");
+    boolean emptyCatalogHasTables = emptyCatalog != null
+        && emptyCatalog.schemas.values().stream().anyMatch(schema -> !schema.tables.isEmpty());
+    // Some drivers (notably PostgreSQL) deny catalog qualification but still file tables under
+    // named JDBC catalogs. Do not switch away from those keys to an empty catalog with no tables.
+    if (catalogLess && (!hasTables || emptyCatalogHasTables) || hasTables && allTablesCatalogLess
+        || !catalogs.containsKey(currentCatalogName) && emptyCatalogHasTables) {
+      currentCatalogName = "";
+    }
   }
 
   public JdbcMetaDataOptions getExtractionOptions() {
@@ -591,6 +702,11 @@ public final class JdbcMetaData implements DatabaseMetaData {
   }
 
   private String[] readCurrentContext(Connection conn) throws SQLException {
+    if (databaseType.getCurrentSchemaQuery() == null) {
+      String catalog = conn.getCatalog();
+      String schema = conn.getSchema();
+      return new String[] {catalog == null ? "" : catalog, schema == null ? "" : schema};
+    }
     try (Statement statement = conn.createStatement();
         ResultSet rs = statement.executeQuery(databaseType.getCurrentSchemaQuery())) {
       if (!rs.next()) {
@@ -606,7 +722,7 @@ public final class JdbcMetaData implements DatabaseMetaData {
    *
    * @param pattern the pattern to validate
    * @return catalog (null when absent) and schema LIKE pattern
-   * @throws IllegalArgumentException for invalid patterns or catalog wildcards
+   * @throws IllegalArgumentException for invalid patterns
    */
   public static String[] parseSchemaPattern(String pattern) {
     if (pattern == null || pattern.isBlank()) {
@@ -632,9 +748,6 @@ public final class JdbcMetaData implements DatabaseMetaData {
     }
     String catalog = separator < 0 ? null : parsePatternPart(value.substring(0, separator));
     String schema = parsePatternPart(value.substring(separator + 1));
-    if (catalog != null && (catalog.contains("%") || catalog.contains("_"))) {
-      throw new IllegalArgumentException("Catalog wildcards are not supported");
-    }
     return new String[] {catalog, schema};
   }
 
@@ -658,7 +771,9 @@ public final class JdbcMetaData implements DatabaseMetaData {
   private static boolean matchesSchema(List<String[]> patterns, JdbcSchema schema) {
     for (String[] pattern : patterns) {
       if ((pattern[0] == null || pattern[0].equalsIgnoreCase(schema.tableCatalog))
-          && schemaLikePattern(pattern[1]).matcher(schema.tableSchema).matches()) {
+          && schemaLikePattern(pattern[1])
+              .matcher(schema.tableSchema.isEmpty() ? schema.tableCatalog : schema.tableSchema)
+              .matches()) {
         return true;
       }
     }
@@ -2116,6 +2231,7 @@ public final class JdbcMetaData implements DatabaseMetaData {
     JdbcMetaData metaData1 =
         new JdbcMetaData(metaData.currentCatalogName, metaData.currentSchemaName);
     metaData1.extractionOptions = metaData.extractionOptions.copy();
+    metaData1.databaseType = metaData.databaseType;
     metaData1.getFromTables().putAll(fromTables);
     // The enclosing scope travels with the copy; only the query's own tables are
     // decided per copy.
@@ -2249,6 +2365,30 @@ public final class JdbcMetaData implements DatabaseMetaData {
 
   public void setCurrentSchemaName(String currentSchemaName) {
     this.currentSchemaName = currentSchemaName;
+  }
+
+  /** Resolve a SQL two-part catalog.table name into JDBC's catalog and empty schema. */
+  public void resolveTableScope(Table table) {
+    String catalogName = table.getUnquotedDatabaseName();
+    String qualifier = table.getUnquotedSchemaName();
+    if (catalogName != null && !catalogName.isEmpty() || qualifier == null || qualifier.isEmpty()) {
+      return;
+    }
+    JdbcCatalog current = catalogs.get(currentCatalogName);
+    if (current != null && current.get(qualifier) != null) {
+      return;
+    }
+    boolean catalogOnly = databaseType.isMySqlFamily() && currentSchemaName.isEmpty()
+        && current != null && current.get("") != null && current.schemas.values().stream()
+            .allMatch(schema -> schema.tableSchema.isEmpty() || schema.tables.isEmpty());
+    JdbcCatalog qualified = catalogs.get(qualifier);
+    boolean emptySchemaCatalog =
+        qualified != null && qualified.get("") != null && qualified.schemas.values().stream()
+            .allMatch(schema -> schema.tableSchema.isEmpty() || schema.tables.isEmpty());
+    if (catalogOnly || (current == null || current.get(qualifier) == null) && emptySchemaCatalog) {
+      table.setDatabaseName(table.getSchemaName());
+      table.setSchemaName("");
+    }
   }
 
   public boolean hasTable(String catalogName, String schemaName, String tableName) {

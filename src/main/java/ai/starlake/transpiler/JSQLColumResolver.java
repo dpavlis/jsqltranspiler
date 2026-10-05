@@ -351,7 +351,9 @@ public class JSQLColumResolver
     StringBuilder builder = new StringBuilder();
     if (catalogName != null && !catalogName.isEmpty()) {
       builder.append(catalogName).append(".");
-      builder.append(schemaName != null ? schemaName : "").append(".");
+      if (schemaName != null && !schemaName.isEmpty()) {
+        builder.append(schemaName).append(".");
+      }
     } else if (schemaName != null && !schemaName.isEmpty()) {
       builder.append(schemaName).append(".");
     }
@@ -366,7 +368,9 @@ public class JSQLColumResolver
       return columName;
     } else if (catalogName != null && !catalogName.isEmpty()) {
       builder.append(catalogName).append(".");
-      builder.append(schemaName != null ? schemaName : "").append(".");
+      if (schemaName != null && !schemaName.isEmpty()) {
+        builder.append(schemaName).append(".");
+      }
     } else if (schemaName != null && !schemaName.isEmpty()) {
       builder.append(schemaName).append(".");
     }
@@ -379,6 +383,7 @@ public class JSQLColumResolver
   public <S> JdbcResultSetMetaData visit(Table table, S context) {
     JdbcResultSetMetaData rsMetaData = new JdbcResultSetMetaData();
     JdbcMetaData metaData = (JdbcMetaData) context;
+    metaData.resolveTableScope(table);
     if (table.getSchemaName() == null || table.getSchemaName().isEmpty()) {
       table.setSchemaName(metaData.getCurrentSchemaName());
     }
@@ -501,6 +506,7 @@ public class JSQLColumResolver
     }
 
     for (Table t : metaData.getFromTables().values()) {
+      metaData.resolveTableScope(t);
       if (t.getSchemaName() == null || t.getSchemaName().isEmpty()) {
         t.setSchemaName(metaData.getCurrentSchemaName());
       }
@@ -514,6 +520,7 @@ public class JSQLColumResolver
     }
 
     for (Table t : metaData.getNaturalJoinedTables().values()) {
+      metaData.resolveTableScope(t);
       if (t.getSchemaName() == null || t.getSchemaName().isEmpty()) {
         t.setSchemaName(metaData.getCurrentSchemaName());
       }

@@ -146,6 +146,189 @@ class MetadataFallbackTest {
   }
 
   @Test
+  void schemaLessMysqlFiltersCatalogsAndResolvesUnqualifiedTables() throws Exception {
+    try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+      try (Statement st = conn.createStatement()) {
+        st.execute("CREATE TABLE PUBLIC.T(A INT)");
+      }
+      Connection[] wrapped = new Connection[1];
+      DatabaseMetaData delegate = conn.getMetaData();
+      DatabaseMetaData md = proxy(DatabaseMetaData.class, delegate, (method, args) -> {
+        if (method.equals("getDatabaseProductName")) {
+          return "MySQL";
+        }
+        if (method.equals("getConnection")) {
+          return wrapped[0];
+        }
+        if (method.startsWith("supportsSchemas")) {
+          return false;
+        }
+        if (method.equals("getTables") || method.equals("getColumns")) {
+          ResultSet rows =
+              method.equals("getTables") ? delegate.getTables((String) args[0], "PUBLIC", "%", null)
+                  : delegate.getColumns((String) args[0], "PUBLIC", "%", "%");
+          return proxy(ResultSet.class, rows, (name, parameters) -> {
+            if (name.equals("getString") && "TABLE_SCHEM".equals(parameters[0])) {
+              return null;
+            }
+            return UNHANDLED;
+          });
+        }
+        return UNHANDLED;
+      });
+      wrapped[0] = proxy(Connection.class, conn, (method, args) -> {
+        if (method.equals("getMetaData")) {
+          return md;
+        }
+        if (method.equals("prepareStatement")) {
+          fail("Base extraction must use JDBC's catalog/schema mapping");
+        }
+        if (method.equals("createStatement")) {
+          Statement st = conn.createStatement();
+          return proxy(Statement.class, st, (name, parameters) -> {
+            if (name.equals("executeQuery")) {
+              assertEquals(DatabaseSpecific.MYSQL.getCurrentSchemaQuery(), parameters[0]);
+              return st.executeQuery("SELECT current_catalog(), current_catalog()");
+            }
+            return UNHANDLED;
+          });
+        }
+        return UNHANDLED;
+      });
+      for (List<String> patterns : List.of(List.<String>of(),
+          List.of(conn.getCatalog().toLowerCase(java.util.Locale.ROOT)))) {
+        JdbcMetaData metadata = new JdbcMetaData(wrapped[0], patterns);
+        assertEquals(conn.getCatalog(), metadata.getCurrentCatalogName());
+        assertEquals("", metadata.getCurrentSchemaName());
+        assertNotNull(metadata.get(conn.getCatalog()).get("").get("T").columns.get("A"));
+        assertNotNull(new ai.starlake.transpiler.JSQLColumResolver(metadata).getLineage(
+            ai.starlake.transpiler.schema.treebuilder.JSONObjectTreeBuilder.class,
+            "select x.a from T x"));
+      }
+      JdbcMetaData unmatched = new JdbcMetaData(wrapped[0], List.of("MISSING"));
+      assertTrue(unmatched.getCatalogsList().stream().flatMap(c -> c.schemas.values().stream())
+          .allMatch(schema -> schema.tables.isEmpty()));
+    }
+  }
+
+  @Test
+  void legacyJsonMissingCurrentCatalogUsesEmptyCatalogEvenWithOtherCatalogs() throws Exception {
+    JdbcMetaData metadata = new JdbcMetaData("FREEPDB1", "TEST");
+    metadata.clear();
+    metadata.addTable("", "TEST", "T", List.of(new JdbcColumn("A")));
+    metadata.addTable("OTHER", "TEST", "OTHER_T", List.of(new JdbcColumn("B")));
+    JdbcMetaData restored = JdbcJSONSerializer
+        .fromJson(new java.io.StringReader(JdbcJSONSerializer.toJson(metadata).toString()));
+    assertEquals("", restored.getCurrentCatalogName());
+    assertNotNull(new ai.starlake.transpiler.JSQLColumResolver(restored).getLineage(
+        ai.starlake.transpiler.schema.treebuilder.JSONObjectTreeBuilder.class,
+        "select x.a from T x"));
+  }
+
+  @Test
+  void oracleCatalogContextAndLegacyJsonResolveWithoutInformationSchema() throws Exception {
+    for (boolean supportsCatalogs : List.of(false, true)) {
+      try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+        try (Statement st = conn.createStatement()) {
+          st.execute("CREATE SCHEMA TEST");
+          st.execute("CREATE TABLE TEST.T(A INT PRIMARY KEY)");
+        }
+        conn.setAutoCommit(false);
+        Connection[] wrapped = new Connection[1];
+        DatabaseMetaData delegate = conn.getMetaData();
+        DatabaseMetaData md = proxy(DatabaseMetaData.class, delegate, (method, args) -> {
+          if (method.equals("getDatabaseProductName")) {
+            return "Oracle";
+          }
+          if (method.equals("getConnection")) {
+            return wrapped[0];
+          }
+          if (method.startsWith("supportsCatalogs")) {
+            return supportsCatalogs;
+          }
+          if (method.equals("getSchemas") || method.equals("getTables")
+              || method.equals("getColumns")) {
+            ResultSet rows = method.equals("getSchemas") ? delegate.getSchemas()
+                : method.equals("getTables") ? delegate.getTables(null, "TEST", "%", null)
+                    : delegate.getColumns(null, "TEST", "%", "%");
+            return proxy(ResultSet.class, rows, (name, parameters) -> {
+              if (name.equals("getString")
+                  && ("TABLE_CAT".equals(parameters[0]) || "TABLE_CATALOG".equals(parameters[0]))) {
+                return null;
+              }
+              return UNHANDLED;
+            });
+          }
+          return UNHANDLED;
+        });
+        List<String> sql = new ArrayList<>();
+        wrapped[0] = proxy(Connection.class, conn, (method, args) -> {
+          if (method.equals("getMetaData")) {
+            return md;
+          }
+          if (method.equals("getCatalog")) {
+            return null;
+          }
+          if (method.equals("createStatement")) {
+            Statement st = conn.createStatement();
+            return proxy(Statement.class, st, (name, parameters) -> {
+              if (name.equals("executeQuery")) {
+                sql.add((String) parameters[0]);
+                if (parameters[0].equals(DatabaseSpecific.ORACLE.getCurrentSchemaQuery())) {
+                  return st.executeQuery("SELECT 'FREEPDB1', 'TEST'");
+                }
+              }
+              return UNHANDLED;
+            });
+          }
+          if (method.equals("prepareStatement")) {
+            sql.add((String) args[0]);
+          }
+          return UNHANDLED;
+        });
+        List<java.util.logging.LogRecord> warnings = new ArrayList<>();
+        java.util.logging.Handler handler = new java.util.logging.Handler() {
+          public void publish(java.util.logging.LogRecord record) {
+            if (record.getLevel().intValue() >= java.util.logging.Level.WARNING.intValue()) {
+              warnings.add(record);
+            }
+          }
+
+          public void flush() {}
+
+          public void close() {}
+        };
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger("");
+        logger.addHandler(handler);
+        try {
+          JdbcMetaData metadata =
+              new JdbcMetaData(wrapped[0], List.of("TEST"), JdbcMetaDataOptions.defaults());
+          org.json.JSONObject json = JdbcJSONSerializer.toJson(metadata);
+          assertEquals("", json.getString("currentCatalog"));
+          assertNotNull(new ai.starlake.transpiler.JSQLColumResolver(metadata).getLineage(
+              ai.starlake.transpiler.schema.treebuilder.JSONObjectTreeBuilder.class,
+              "select x.a from T x"));
+          json.put("currentCatalog", "FREEPDB1");
+          JdbcMetaData restored =
+              JdbcJSONSerializer.fromJson(new java.io.StringReader(json.toString()));
+          assertEquals("", restored.getCurrentCatalogName());
+          assertNotNull(new ai.starlake.transpiler.JSQLColumResolver(restored).getLineage(
+              ai.starlake.transpiler.schema.treebuilder.JSONObjectTreeBuilder.class,
+              "select x.a from T x"));
+          assertTrue(
+              sql.stream().noneMatch(
+                  query -> query.toLowerCase(java.util.Locale.ROOT).contains("information_schema")),
+              sql.toString());
+          assertTrue(warnings.isEmpty(), warnings.toString());
+        } finally {
+          logger.removeHandler(handler);
+          conn.rollback();
+        }
+      }
+    }
+  }
+
+  @Test
   void catalogLessDriverDoesNotAcquireConnectionCatalog() throws SQLException {
     try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
       DatabaseMetaData md = proxy(DatabaseMetaData.class, conn.getMetaData(), (method, args) -> {
@@ -226,6 +409,168 @@ class MetadataFallbackTest {
       assertEquals("PUBLIC", column.tableSchema);
       assertEquals("SAMPLE", column.tableName);
     }
+  }
+
+  @Test
+  void failedCurrentContextUsesGettersWithoutDiscardingCallerWork() throws Exception {
+    for (boolean autoCommit : List.of(true, false)) {
+      try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+        conn.createStatement().execute("CREATE TABLE T(ID INT)");
+        conn.setAutoCommit(autoCommit);
+        conn.createStatement().execute("INSERT INTO T VALUES (42)");
+        Connection profile = failingContext(conn, null, null);
+        JdbcMetaData metadata = new JdbcMetaData(profile);
+        assertEquals(conn.getCatalog(), metadata.getCurrentCatalogName());
+        assertEquals(conn.getSchema(), metadata.getCurrentSchemaName());
+        assertNotNull(new ai.starlake.transpiler.JSQLColumResolver(metadata).getLineage(
+            ai.starlake.transpiler.schema.treebuilder.JSONObjectTreeBuilder.class,
+            "SELECT ID FROM T"));
+        assertEquals(autoCommit, conn.getAutoCommit());
+        try (ResultSet rows = conn.createStatement().executeQuery("SELECT ID FROM T")) {
+          if (!rows.next()) {
+            fail("Metadata fallback discarded caller work");
+          }
+          assertEquals(42, rows.getInt(1));
+        }
+        if (!autoCommit) {
+          conn.rollback();
+        }
+      }
+    }
+  }
+
+  @Test
+  void unsupportedContextGettersAreIndependent() throws Exception {
+    for (boolean unsupportedCatalog : List.of(true, false)) {
+      try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+        SQLException unsupported = new java.sql.SQLFeatureNotSupportedException("No getter");
+        JdbcMetaData metadata = new JdbcMetaData(failingContext(conn,
+            unsupportedCatalog ? unsupported : null, unsupportedCatalog ? null : unsupported));
+        assertEquals(unsupportedCatalog ? "" : conn.getCatalog(), metadata.getCurrentCatalogName());
+        assertEquals(unsupportedCatalog ? conn.getSchema() : "", metadata.getCurrentSchemaName());
+      }
+    }
+  }
+
+  @Test
+  void contextGetterFailuresPropagateWithProbeDiagnostic() throws Exception {
+    try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+      SQLException failure = new SQLException("Getter failed");
+      SQLException error = assertThrows(SQLException.class,
+          () -> new JdbcMetaData(failingContext(conn, failure, null)));
+      assertSame(failure, error);
+      assertEquals("Current-context SQL failed", error.getSuppressed()[0].getMessage());
+    }
+  }
+
+  @Test
+  void mysqlSchemaModeNormalizesSyntheticCatalogWithoutChangingRealCatalogs() throws Exception {
+    try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+      conn.createStatement().execute("CREATE TABLE T(ID INT)");
+      Connection[] wrapped = new Connection[1];
+      DatabaseMetaData delegate = conn.getMetaData();
+      DatabaseMetaData metadata = proxy(DatabaseMetaData.class, delegate, (name, args) -> {
+        if (name.equals("getDatabaseProductName")) {
+          return "MySQL";
+        }
+        if (name.equals("getConnection")) {
+          return wrapped[0];
+        }
+        if (name.startsWith("supportsCatalogs")) {
+          return false;
+        }
+        if (name.equals("getCatalogs")) {
+          return proxy(ResultSet.class, delegate.getCatalogs(), (method, parameters) -> {
+            if (method.equals("next")) {
+              return false;
+            }
+            return UNHANDLED;
+          });
+        }
+        if (List.of("getSchemas", "getTables", "getColumns").contains(name)) {
+          ResultSet rows;
+          if (name.equals("getSchemas")) {
+            rows = delegate.getSchemas();
+          } else if (name.equals("getTables")) {
+            rows = delegate.getTables(null, "PUBLIC", "%", null);
+          } else {
+            rows = delegate.getColumns(null, "PUBLIC", "%", "%");
+          }
+          return proxy(ResultSet.class, rows, (method, parameters) -> {
+            if (method.equals("getString")
+                && List.of("TABLE_CAT", "TABLE_CATALOG").contains(parameters[0])) {
+              return "def";
+            }
+            return UNHANDLED;
+          });
+        }
+        return UNHANDLED;
+      });
+      wrapped[0] = proxy(Connection.class, conn, (name, args) -> {
+        if (name.equals("getMetaData")) {
+          return metadata;
+        }
+        if (name.equals("createStatement")) {
+          Statement statement = conn.createStatement();
+          return proxy(Statement.class, statement,
+              (method, parameters) -> method.equals("executeQuery")
+                  ? statement.executeQuery("SELECT '', 'PUBLIC'")
+                  : UNHANDLED);
+        }
+        return name.equals("getCatalog") ? null : UNHANDLED;
+      });
+      JdbcMetaData md = new JdbcMetaData(wrapped[0], List.of("PUBLIC"));
+      assertEquals("", md.getCurrentCatalogName());
+      assertEquals("PUBLIC", md.getCurrentSchemaName());
+      assertNotNull(md.get("").get("PUBLIC").get("T"));
+      assertFalse(md.getCatalogMap().containsKey("def"));
+      assertNotNull(new ai.starlake.transpiler.JSQLColumResolver(md).getLineage(
+          ai.starlake.transpiler.schema.treebuilder.JSONObjectTreeBuilder.class,
+          "SELECT T.ID FROM PUBLIC.T"));
+      DatabaseMetaData catalogMode = proxy(DatabaseMetaData.class, metadata, (name, args) -> {
+        if (name.startsWith("supportsCatalogs")) {
+          return true;
+        }
+        return UNHANDLED;
+      });
+      assertEquals("def", JdbcUtils.metadataCatalogValue(catalogMode, "def"));
+    }
+  }
+
+  private Connection failingContext(Connection conn, SQLException catalogFailure,
+      SQLException schemaFailure) throws SQLException {
+    Connection[] profile = new Connection[1];
+    DatabaseMetaData metadata = proxy(DatabaseMetaData.class, conn.getMetaData(), (name, args) -> {
+      if (name.equals("getDatabaseProductName")) {
+        return "PostgreSQL";
+      }
+      return name.equals("getConnection") ? profile[0] : UNHANDLED;
+    });
+    profile[0] = proxy(Connection.class, conn, (name, args) -> {
+      if (name.equals("getMetaData")) {
+        return metadata;
+      }
+      if (name.equals("getCatalog") && catalogFailure != null) {
+        throw catalogFailure;
+      }
+      if (name.equals("getSchema") && schemaFailure != null) {
+        throw schemaFailure;
+      }
+      if (name.equals("createStatement")) {
+        return proxy(Statement.class, conn.createStatement(), (method, parameters) -> {
+          if (method.equals("executeQuery")) {
+            throw new SQLException("Current-context SQL failed");
+          }
+          return UNHANDLED;
+        });
+      }
+      if (name.equals("commit") || name.equals("setAutoCommit")
+          || name.equals("rollback") && args.length == 0) {
+        throw new AssertionError("Scanner changed caller transaction");
+      }
+      return UNHANDLED;
+    });
+    return profile[0];
   }
 
   private Connection profileConnection(Connection conn, DatabaseSpecific type, boolean savepoints,

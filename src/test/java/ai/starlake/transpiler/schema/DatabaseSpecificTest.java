@@ -33,10 +33,18 @@ class DatabaseSpecificTest {
       "Amazon Redshift PostgreSQL,REDSHIFT", "Databricks,DATABRICKS", "SparkSQL,DATABRICKS",
       "Spark SQL,DATABRICKS", "Oracle,ORACLE", "PostgreSQL,POSTGRESQL",
       "Microsoft SQL Server,MSSQL", "MySQL,MYSQL", "Snowflake,SNOWFLAKE", "DuckDB,DUCKDB", "H2,H2",
-      "SQLite,OTHER"})
+      "SQLite,SQLITE"})
   void detectsDriverProductNames(String product, DatabaseSpecific expected) {
     assertEquals(expected, DatabaseSpecific.getType(product));
     assertEquals(expected, DatabaseSpecific.getType(product.toLowerCase(Locale.ROOT)));
+  }
+
+  @ParameterizedTest
+  @CsvSource({"MYSQL", "MARIADB"})
+  void mysqlFamilyUsesBulkKeysAndNativeScopeMapping(DatabaseSpecific type) {
+    assertTrue(type.isMySqlFamily());
+    assertEquals(JdbcUtils.KeyStrategy.INFORMATION_SCHEMA, type.getKeyStrategy());
+    assertTrue(type.usesJdbcMetadata());
   }
 
   @Test

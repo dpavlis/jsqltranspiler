@@ -230,7 +230,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
         dbSpecific.tableTypes);) {
       while (rs.next()) {
         // TABLE_CATALOG String => catalog name (may be null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT", defaultCatalog);
+        String tableCatalog = JdbcUtils.metadataCatalogValue(metaData,
+            JdbcUtils.getStringSafe(rs, "TABLE_CAT", defaultCatalog));
 
         // TABLE_SCHEM String => schema name
         String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM", defaultSchema);
@@ -295,7 +296,9 @@ public class JdbcTable implements Comparable<JdbcTable> {
       String catalog, String schemaPattern, String tableNamePattern, boolean exactSchema)
       throws SQLException {
     DatabaseMetaData metaData = connection.getMetaData();
-    if (JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName()).usesJdbcMetadata()) {
+    JdbcUtils.DatabaseSpecific type =
+        JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName());
+    if (type.usesJdbcMetadata() && type != JdbcUtils.DatabaseSpecific.SNOWFLAKE) {
       return getColumns(metaData, catalog, schemaPattern, tableNamePattern, exactSchema);
     }
     return JdbcUtils.metadataProbe(connection, () -> readColumnsFromInformationSchema(connection,
@@ -306,16 +309,25 @@ public class JdbcTable implements Comparable<JdbcTable> {
       String catalog, String schemaPattern, String tableNamePattern, boolean exactSchema)
       throws SQLException {
     DatabaseMetaData metaData = connection.getMetaData();
+    JdbcUtils.DatabaseSpecific databaseType =
+        JdbcUtils.DatabaseSpecific.getType(metaData.getDatabaseProductName());
     String defaultCatalog = JdbcUtils.metadataCatalog(metaData, catalog);
     String defaultSchema = JdbcUtils.metadataSchema(metaData, schemaPattern, exactSchema);
     ArrayList<JdbcColumn> jdbcColumns = new ArrayList<>();
 
+    String prefix = "";
+    if (JdbcUtils.DatabaseSpecific
+        .getType(metaData.getDatabaseProductName()) == JdbcUtils.DatabaseSpecific.SNOWFLAKE
+        && !defaultCatalog.isEmpty()) {
+      prefix = JdbcUtils.quoteIdentifier(metaData, defaultCatalog) + ".";
+    }
+
     // Build the query to fetch column information from INFORMATION_SCHEMA
-    StringBuilder query = new StringBuilder(
-        "SELECT " + "  TABLE_CATALOG, " + "  TABLE_SCHEMA, " + "  TABLE_NAME, " + "  COLUMN_NAME, "
-            + "  ORDINAL_POSITION, " + "  COLUMN_DEFAULT, " + "  IS_NULLABLE, " + "  DATA_TYPE, "
-            + "  CHARACTER_MAXIMUM_LENGTH, " + "  NUMERIC_PRECISION, " + "  NUMERIC_SCALE, "
-            + "  COMMENT, " + "  IS_IDENTITY " + "FROM INFORMATION_SCHEMA.COLUMNS " + "WHERE 1=1");
+    StringBuilder query = new StringBuilder("SELECT " + "  TABLE_CATALOG, " + "  TABLE_SCHEMA, "
+        + "  TABLE_NAME, " + "  COLUMN_NAME, " + "  ORDINAL_POSITION, " + "  COLUMN_DEFAULT, "
+        + "  IS_NULLABLE, " + "  DATA_TYPE, " + "  CHARACTER_MAXIMUM_LENGTH, "
+        + "  NUMERIC_PRECISION, " + "  NUMERIC_SCALE, " + "  COMMENT, " + "  IS_IDENTITY " + "FROM "
+        + prefix + "INFORMATION_SCHEMA.COLUMNS WHERE 1=1");
 
     List<Object> params = new ArrayList<>();
 
@@ -368,6 +380,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
             columnSize = JdbcUtils.getIntSafe(rs, "NUMERIC_PRECISION");
           }
 
+          columnSize = normalizeColumnSize(databaseType, dataType, columnSize);
+
           Integer decimalDigits = JdbcUtils.getIntSafe(rs, "NUMERIC_SCALE");
           Integer numericPrecisionRadix = (dataType != null && isNumericType(dataType)) ? 10 : null;
 
@@ -405,6 +419,17 @@ public class JdbcTable implements Comparable<JdbcTable> {
     }
 
     return jdbcColumns;
+  }
+
+  private static Integer normalizeColumnSize(JdbcUtils.DatabaseSpecific databaseType,
+      Integer dataType, Integer columnSize) {
+    // Snowflake getColumns reports 0 for DATE although query metadata uses yyyy-mm-dd width.
+    if (databaseType == JdbcUtils.DatabaseSpecific.SNOWFLAKE
+        && Integer.valueOf(java.sql.Types.DATE).equals(dataType)
+        && (columnSize == null || columnSize == 0)) {
+      return 10;
+    }
+    return columnSize;
   }
 
   private static Integer mapSnowflakeTypeToJdbcType(String snowflakeType) {
@@ -508,7 +533,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
         "%");) {
       while (rs.next()) {
         // TABLE_CATALOG String => catalog name (may be null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT", defaultCatalog);
+        String tableCatalog = JdbcUtils.metadataCatalogValue(metaData,
+            JdbcUtils.getStringSafe(rs, "TABLE_CAT", defaultCatalog));
 
         // TABLE_SCHEM String => schema name
         String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM", defaultSchema);
@@ -532,7 +558,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
         String typeName = JdbcUtils.getStringSafe(rs, "TYPE_NAME");
 
         // COLUMN_SIZE int => column size.
-        Integer columnSize = JdbcUtils.getIntSafe(rs, "COLUMN_SIZE");
+        Integer columnSize =
+            normalizeColumnSize(dbSpecific, dataType, JdbcUtils.getIntSafe(rs, "COLUMN_SIZE"));
 
         // DECIMAL_DIGITS int => the number of fractional digits.
         // Null is returned for data types where DECIMAL_DIGITS is not applicable.
@@ -612,7 +639,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
 
       while (rs.next()) {
         // TABLE_CATALOG String => catalog name(may be null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT", this.tableCatalog);
+        String tableCatalog = JdbcUtils.metadataCatalogValue(metaData,
+            JdbcUtils.getStringSafe(rs, "TABLE_CAT", this.tableCatalog));
 
         // TABLE_SCHEM String => schema name
         String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM", this.tableSchema);
@@ -688,7 +716,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
 
       while (rs.next()) {
         // TABLE_CATALOG String => catalog name (may be null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT", this.tableCatalog);
+        String tableCatalog = JdbcUtils.metadataCatalogValue(metaData,
+            JdbcUtils.getStringSafe(rs, "TABLE_CAT", this.tableCatalog));
 
         // TABLE_SCHEM String => schema name
         String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM", this.tableSchema);

@@ -57,7 +57,11 @@ still runs, but only matched schemas have their tables and columns extracted:
 Patterns use ``schema`` or ``catalog.schema``. Catalog names match exactly, ignoring case;
 schema patterns match case-insensitively with ``%`` for any sequence, ``_`` for one character,
 and backslash to escape the following character. Double quotes protect dots within names,
-and doubled double quotes represent a literal quote. Catalog wildcards are rejected.
+and doubled double quotes represent a literal quote. In catalog names, ``_`` and ``%``
+are ordinary literal characters; ``SNOWFLAKE_SAMPLE_DATA.TPCH_SF1`` needs no quoting.
+Catalog-less filters select the current catalog when one is available. To match such
+filters across every visible catalog, use ``JdbcMetaDataOptions.none().setAllCatalogs(true)``
+(or ``defaults().setAllCatalogs(true)`` when requesting enrichment).
 Matching uses discovered names, so lowercase patterns also retrieve uppercase schemas.
 Overlapping patterns extract each matched schema once. The current catalog and schema are
 unchanged. Null or empty pattern collections retain unrestricted extraction; unmatched patterns
@@ -118,6 +122,17 @@ the requested catalog, or the connection's current catalog when none was request
 schema catalogs use the connection's current catalog. Extraction never
 changes auto-commit or commits/rolls back caller transactions.
 
+Snowflake and Databricks use JDBC discovery for catalogs, schemas, tables and columns.
+Unrestricted schema discovery enumerates visible catalogs and the current catalog.
+Filtered discovery calls ``getSchemas(catalog, schemaPattern)`` only for the catalogs
+selected by the filters. Unreadable visible catalogs are skipped with a FINE log;
+unknown requested catalogs and ordinary JDBC failures still report errors. Unsupported catalog-scoped schema reads fall back
+to one unscoped read; rows lacking a catalog require an unambiguous catalog context.
+Tables and columns are read per selected schema, including when no filter is supplied.
+Vendor key and comment enrichment remains available. Explicit Snowflake column reads
+through ``getColumnsFromSchemaInformation`` use the requested database's quoted
+INFORMATION_SCHEMA qualifier, defaulting to the connection's current database.
+
 These configurations supply detection and extraction policy, not dedicated vendor metadata
 implementations. INFORMATION_SCHEMA queries retain their existing JDBC fallbacks. Actual
 catalog/schema mapping and metadata availability depend on the driver and permissions;
@@ -154,7 +169,8 @@ from the current connection catalog or schema rows, preventing orphaned metadata
 In a caller transaction, speculative SQL (including current-context lookup) runs inside a
 savepoint. On query failure the scanner rolls back only to that savepoint before JDBC fallback.
 It never commits, rolls back the whole transaction, or changes auto-commit. Drivers without
-savepoint support skip SQL probes and use JDBC metadata; current context uses connection getters.
+savepoint support skip SQL probes and use JDBC metadata. Safely recovered current-context
+query failures also fall back to independent connection catalog/schema getters.
 Failures while creating or rolling back a savepoint, and actual release failures, are propagated
 so the scanner cannot continue using an uncertain transaction. Unsupported release is harmless:
 Oracle and SQL Server savepoints remain until the caller ends the transaction. With auto-commit enabled, normal query fallback
@@ -424,8 +440,8 @@ PostgreSQL transaction regression tests
 =======================================
 
 The optional live tests use a database containing at least one user table in its current schema.
-Set ``POSTGRES_JDBC_URL``, ``POSTGRES_USER`` and ``POSTGRES_PASSWORD`` in the environment,
-then run ``./gradlew test --tests '*PostgreSqlMetaDataTest'``. Credentials are not stored in the
+Set ``postgresql.url``, ``postgresql.user`` and ``postgresql.password`` in the local,
+Git-ignored ``live-databases.properties`` file, then run ``./gradlew test --tests '*PostgreSqlMetaDataTest'``. Credentials are not stored in the
 repository. Tests cover filtered/unfiltered extraction with auto-commit on and off. Transactional
 tests create a temporary marker table and roll it back, checking that scanning neither commits
 nor discards earlier work and that caller savepoints remain valid.
@@ -458,6 +474,48 @@ Default test drivers are Oracle ojdbc11 23.6.0.24.10 and Microsoft JDBC 12.8.1.j
 ``-PoracleJdbcVersion=...`` and ``-PmssqlJdbcVersion=...``. Drivers are test-runtime dependencies
 and are not bundled into the transpiler JAR.
 
+Snowflake sample database live tests
+====================================
+
+Configure ``snowflake.url``, ``snowflake.user`` and ``snowflake.password`` in the ignored
+``live-databases.properties`` file, using ``SNOWFLAKE_SAMPLE_DATA`` and ``TPCH_SF1`` as
+the connection's database and schema. Run::
+
+    ./gradlew test --tests '*SnowflakeLiveMetaDataTest'
+
+These tests only read the shared sample database. They verify native metadata, numeric
+precision, JSON round trips, join lineage, discovery from another current database, and
+explicit INFORMATION_SCHEMA reads. An existing warehouse is selected for SQL queries;
+if none is available, the explicit INFORMATION_SCHEMA test is skipped.
+
+DB2 and MySQL live catalog tests
+================================
+
+Configure ``db2.url``, ``db2.user``, ``db2.password`` and/or corresponding ``mysql.*`` properties
+in the same private file. Run::
+
+    ./gradlew test --tests '*Db2MySqlMetaDataTest'
+
+Fixtures use uniquely named tables in the DB2 login schema or MySQL current database and are
+dropped after each test. Tests cover keys, comments, column details, indexes, JSON, unqualified
+lineage and transaction preservation. MySQL bulk key call counts must stay constant as tables
+are added; DB2 uses its supported per-table JDBC key fallback. Default test drivers are DB2 JCC
+11.5.7.0 and MySQL Connector/J 8.2.0, overridable with ``-Pdb2JdbcVersion=...`` and
+``-PmysqlJdbcVersion=...``. These drivers are not bundled into the transpiler JAR.
+
+
+
+Catalog-only qualified names
+----------------------------
+
+For MySQL and MariaDB, two-part ``database.table`` names follow the extracted JDBC layout:
+catalog and empty schema in catalog mode, or schema in schema mode (including Connector/J
+``databaseTerm=SCHEMA``). Connector/J's synthetic ``def`` catalog in schema mode is
+normalized to an empty catalog. Existing named schemas take precedence over catalog
+rewriting. Backquoted names and database-qualified columns use the same mapping. Other database
+profiles retain schema-qualified names; a qualifier can fall back to a catalog when it is not a
+schema of the current catalog and that catalog has only an empty populated schema. Lineage
+``table`` and ``scope`` names omit empty schema segments, for example ``test.lt_customers``.
 
 Expression-aware lineage
 ------------------------
@@ -507,12 +565,17 @@ null options select defaults. The constructor snapshots the settings, so later m
 change its output. ``getExtractionOptions()`` returns a copy.
 
 Keys are loaded only for retained schemas. INFORMATION_SCHEMA queries read primary keys in bulk
-for PostgreSQL, MySQL, SQL Server, Snowflake, H2 and DuckDB. Oracle uses ALL_CONSTRAINTS and
+for PostgreSQL, MySQL, SQL Server, H2 and DuckDB. Snowflake uses one
+``SHOW PRIMARY KEYS IN SCHEMA`` and one ``SHOW IMPORTED KEYS IN SCHEMA`` per schema,
+with safely quoted database/schema names, and never queries ``KEY_COLUMN_USAGE``. Oracle uses ALL_CONSTRAINTS and
 ALL_CONS_COLUMNS. PostgreSQL's JDBC driver supplies imported keys with a null table in one call
 per schema. Other INFORMATION_SCHEMA paths join referential constraints to ordered column pairs;
 SQL Server uses sys views for foreign keys because its INFORMATION_SCHEMA lacks the referenced
-column position. Other profiles try schema-wide JDBC imported keys. Unsupported bulk paths fall
-back to per-table JDBC calls. Indexes use approximate ``getIndexInfo`` per table when enabled.
+column position. Failed bulk paths try schema-wide JDBC primary/imported keys with a null
+table first, then per-table JDBC only if the schema-wide call fails. Empty results are
+valid and do not trigger fallback. Db2 LUW reads imported keys in bulk from
+``SYSCAT.REFERENCES`` and ``SYSCAT.KEYCOLUSE`` because its JDBC null-table call
+silently returns an empty result. Indexes use approximate ``getIndexInfo`` per table when enabled.
 
 A schema-wide native column read supplements identity/generated flags when the generic
 INFORMATION_SCHEMA mapping cannot infer them. PostgreSQL keeps its existing JDBC column details.

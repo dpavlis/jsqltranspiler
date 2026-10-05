@@ -18,6 +18,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.SQLFeatureNotSupportedException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -49,7 +50,14 @@ final class JdbcKeyExtractor {
         if (schema.tables.isEmpty() || !type.processSchema(schema.tableSchema)) {
           continue;
         }
-        if (options.primaryKeys && !bulkPrimaryKeys(conn, type, schema)) {
+        if (options.primaryKeys && !bulkPrimaryKeys(conn, type, schema) && !probe(conn, () -> {
+          try (ResultSet rs =
+              md.getPrimaryKeys(jdbcCatalog(type, schema), schema.tableSchema, null)) {
+            readPrimaryKeys(rs, schema, false);
+          }
+          return null;
+        })) {
+          LOGGER.fine("Schema-wide primary keys unsupported; use per-table JDBC metadata");
           for (JdbcTable table : schema.tables.values()) {
             optionalJdbc(conn, () -> {
               table.getPrimaryKey(md);
@@ -57,11 +65,18 @@ final class JdbcKeyExtractor {
             });
           }
         }
-        if (options.foreignKeys && !bulkForeignKeys(conn, type, schema)) {
+        if (options.foreignKeys && !bulkForeignKeys(conn, type, schema) && !probe(conn, () -> {
+          try (ResultSet rs =
+              md.getImportedKeys(jdbcCatalog(type, schema), schema.tableSchema, null)) {
+            readForeignKeys(rs, schema);
+          }
+          return null;
+        })) {
+          LOGGER.fine("Schema-wide imported keys unsupported; use per-table JDBC metadata");
           for (JdbcTable table : schema.tables.values()) {
             optionalJdbc(conn, () -> {
-              try (ResultSet rs =
-                  md.getImportedKeys(table.tableCatalog, table.tableSchema, table.tableName)) {
+              try (ResultSet rs = md.getImportedKeys(jdbcCatalog(type, schema), table.tableSchema,
+                  table.tableName)) {
                 readForeignKeys(rs, schema);
               }
               return null;
@@ -114,32 +129,78 @@ final class JdbcKeyExtractor {
 
   private static String prefix(Connection conn, JdbcUtils.DatabaseSpecific type, JdbcSchema schema)
       throws SQLException {
-    if (type == JdbcUtils.DatabaseSpecific.POSTGRESQL || type == JdbcUtils.DatabaseSpecific.MYSQL
-        || schema.tableCatalog == null || schema.tableCatalog.isEmpty()) {
+    if (type == JdbcUtils.DatabaseSpecific.POSTGRESQL || type == JdbcUtils.DatabaseSpecific.DUCKDB
+        || type.isMySqlFamily() || schema.tableCatalog == null || schema.tableCatalog.isEmpty()) {
       return "";
     }
-    String quote = conn.getMetaData().getIdentifierQuoteString().trim();
-    if (quote.isEmpty()) {
-      quote = "\"";
-    }
-    String close = "[".equals(quote) ? "]" : quote;
-    return quote + schema.tableCatalog.replace(close, close + close) + close + ".";
+    return JdbcUtils.quoteIdentifier(conn.getMetaData(), schema.tableCatalog) + ".";
   }
 
   private static String schemaName(JdbcUtils.DatabaseSpecific type, JdbcSchema schema) {
-    return type == JdbcUtils.DatabaseSpecific.MYSQL && schema.tableSchema.isEmpty()
-        ? schema.tableCatalog
+    return type.isMySqlFamily() && schema.tableSchema.isEmpty() ? schema.tableCatalog
         : schema.tableSchema;
   }
 
   private static boolean catalogFilter(JdbcUtils.DatabaseSpecific type, JdbcSchema schema) {
     return type.getKeyStrategy() == JdbcUtils.KeyStrategy.INFORMATION_SCHEMA
-        && type != JdbcUtils.DatabaseSpecific.MYSQL && schema.tableCatalog != null
-        && !schema.tableCatalog.isEmpty();
+        && !type.isMySqlFamily() && schema.tableCatalog != null && !schema.tableCatalog.isEmpty();
+  }
+
+  private static String jdbcCatalog(JdbcUtils.DatabaseSpecific type, JdbcSchema schema) {
+    return type == JdbcUtils.DatabaseSpecific.DB2 && schema.tableCatalog.isEmpty() ? null
+        : schema.tableCatalog;
+  }
+
+  private static void readPrimaryKeys(ResultSet rs, JdbcSchema schema, boolean snowflake)
+      throws SQLException {
+    Map<JdbcTable, JdbcPrimaryKey> keys = new LinkedHashMap<>();
+    Map<JdbcTable, TreeMap<Integer, String>> columns = new LinkedHashMap<>();
+    while (rs.next()) {
+      JdbcTable table = schema.get(rs.getString(snowflake ? "table_name" : "TABLE_NAME"));
+      String catalog = JdbcUtils.getStringSafe(rs, snowflake ? "database_name" : "TABLE_CAT");
+      String ownerSchema = JdbcUtils.getStringSafe(rs, snowflake ? "schema_name" : "TABLE_SCHEM");
+      if (table != null
+          && (catalog == null || catalog.isEmpty() || schema.tableCatalog.isEmpty()
+              || catalog.equalsIgnoreCase(schema.tableCatalog))
+          && (ownerSchema == null || ownerSchema.isEmpty() || schema.tableSchema.isEmpty()
+              || ownerSchema.equalsIgnoreCase(schema.tableSchema))) {
+        keys.computeIfAbsent(table, t -> new JdbcPrimaryKey(t.tableCatalog, t.tableSchema,
+            t.tableName, JdbcUtils.getStringSafe(rs, snowflake ? "constraint_name" : "PK_NAME")));
+        columns.computeIfAbsent(table, t -> new TreeMap<>()).put(
+            rs.getInt(snowflake ? "key_sequence" : "KEY_SEQ"),
+            rs.getString(snowflake ? "column_name" : "COLUMN_NAME"));
+      }
+    }
+    keys.forEach((table, key) -> {
+      key.columnNames.addAll(columns.get(table).values());
+      table.primaryKey = key;
+    });
+  }
+
+  private static boolean snowflakeKeys(Connection conn, JdbcSchema schema, boolean primary)
+      throws SQLException {
+    return probe(conn, () -> {
+      String scope = (schema.tableCatalog.isEmpty() ? ""
+          : JdbcUtils.quoteIdentifier(conn.getMetaData(), schema.tableCatalog) + ".")
+          + JdbcUtils.quoteIdentifier(conn.getMetaData(), schema.tableSchema);
+      try (Statement st = conn.createStatement();
+          ResultSet rs = st.executeQuery(
+              "SHOW " + (primary ? "PRIMARY" : "IMPORTED") + " KEYS IN SCHEMA " + scope)) {
+        if (primary) {
+          readPrimaryKeys(rs, schema, true);
+        } else {
+          readForeignKeys(rs, schema, true);
+        }
+      }
+      return null;
+    });
   }
 
   private static boolean bulkPrimaryKeys(Connection conn, JdbcUtils.DatabaseSpecific type,
       JdbcSchema schema) throws SQLException {
+    if (type.getKeyStrategy() == JdbcUtils.KeyStrategy.SNOWFLAKE) {
+      return snowflakeKeys(conn, schema, true);
+    }
     if (type.getKeyStrategy() == JdbcUtils.KeyStrategy.JDBC) {
       return false;
     }
@@ -167,21 +228,7 @@ final class JdbcKeyExtractor {
           st.setString(2, schema.tableCatalog);
         }
         try (ResultSet rs = st.executeQuery()) {
-          Map<JdbcTable, JdbcPrimaryKey> keys = new LinkedHashMap<>();
-          Map<JdbcTable, TreeMap<Integer, String>> columns = new LinkedHashMap<>();
-          while (rs.next()) {
-            JdbcTable table = schema.get(rs.getString("TABLE_NAME"));
-            if (table != null) {
-              keys.computeIfAbsent(table, t -> new JdbcPrimaryKey(t.tableCatalog, t.tableSchema,
-                  t.tableName, JdbcUtils.getStringSafe(rs, "PK_NAME")));
-              columns.computeIfAbsent(table, t -> new TreeMap<>()).put(rs.getInt("KEY_SEQ"),
-                  rs.getString("COLUMN_NAME"));
-            }
-          }
-          keys.forEach((table, key) -> {
-            key.columnNames.addAll(columns.get(table).values());
-            table.primaryKey = key;
-          });
+          readPrimaryKeys(rs, schema, false);
         }
       }
       return null;
@@ -190,10 +237,43 @@ final class JdbcKeyExtractor {
 
   private static boolean bulkForeignKeys(Connection conn, JdbcUtils.DatabaseSpecific type,
       JdbcSchema schema) throws SQLException {
+    if (type.getKeyStrategy() == JdbcUtils.KeyStrategy.SNOWFLAKE) {
+      return snowflakeKeys(conn, schema, false);
+    }
+    // Db2 LUW silently returns no imported keys for a null table; its catalog provides
+    // an actual schema-wide answer. Other Db2 families retain their JDBC path.
+    if (type == JdbcUtils.DatabaseSpecific.DB2
+        && conn.getMetaData().getDatabaseProductName().startsWith("DB2/")) {
+      return probe(conn, () -> {
+        String query = "SELECT RTRIM(r.REFTABSCHEMA) AS PKTABLE_SCHEM, "
+            + "r.REFTABNAME AS PKTABLE_NAME, p.COLNAME AS PKCOLUMN_NAME, "
+            + "RTRIM(r.TABSCHEMA) AS FKTABLE_SCHEM, r.TABNAME AS FKTABLE_NAME, "
+            + "f.COLNAME AS FKCOLUMN_NAME, f.COLSEQ AS KEY_SEQ, r.CONSTNAME AS FK_NAME, "
+            + "r.REFKEYNAME AS PK_NAME, "
+            + "CASE r.UPDATERULE WHEN 'A' THEN 'NO ACTION' WHEN 'R' THEN 'RESTRICT' "
+            + "END AS UPDATE_RULE, CASE r.DELETERULE WHEN 'A' THEN 'NO ACTION' "
+            + "WHEN 'R' THEN 'RESTRICT' WHEN 'C' THEN 'CASCADE' WHEN 'N' THEN 'SET NULL' "
+            + "END AS DELETE_RULE FROM SYSCAT.REFERENCES r "
+            + "JOIN SYSCAT.KEYCOLUSE f ON f.TABSCHEMA=r.TABSCHEMA AND f.TABNAME=r.TABNAME "
+            + "AND f.CONSTNAME=r.CONSTNAME JOIN SYSCAT.KEYCOLUSE p "
+            + "ON p.TABSCHEMA=r.REFTABSCHEMA AND p.TABNAME=r.REFTABNAME "
+            + "AND p.CONSTNAME=r.REFKEYNAME AND p.COLSEQ=f.COLSEQ WHERE r.TABSCHEMA=? "
+            + "ORDER BY r.TABNAME, r.CONSTNAME, f.COLSEQ";
+        try (PreparedStatement st = conn.prepareStatement(query)) {
+          st.setString(1, schema.tableSchema);
+          try (ResultSet rs = st.executeQuery()) {
+            readForeignKeys(rs, schema);
+          }
+        }
+        return null;
+      });
+    }
+    if (type.getKeyStrategy() == JdbcUtils.KeyStrategy.JDBC) {
+      return false;
+    }
     return probe(conn, () -> {
       // pgJDBC accepts null table and returns all imported keys of the schema.
-      if (type == JdbcUtils.DatabaseSpecific.POSTGRESQL
-          || type.getKeyStrategy() == JdbcUtils.KeyStrategy.JDBC) {
+      if (type == JdbcUtils.DatabaseSpecific.POSTGRESQL) {
         try (ResultSet rs =
             conn.getMetaData().getImportedKeys(schema.tableCatalog, schema.tableSchema, null)) {
           readForeignKeys(rs, schema);
@@ -253,7 +333,7 @@ final class JdbcKeyExtractor {
           + "ORDER BY ft.name, fk.name, k.constraint_column_id";
     }
     String info = prefix + "information_schema.";
-    if (type == JdbcUtils.DatabaseSpecific.MYSQL) {
+    if (type.isMySqlFamily()) {
       String fkScope =
           schema.tableSchema.isEmpty() ? "f.TABLE_SCHEMA AS FKTABLE_CAT, NULL AS FKTABLE_SCHEM, "
               : "f.TABLE_SCHEMA AS FKTABLE_SCHEM, ";
@@ -290,13 +370,19 @@ final class JdbcKeyExtractor {
   }
 
   private static void readForeignKeys(ResultSet rs, JdbcSchema schema) throws SQLException {
+    readForeignKeys(rs, schema, false);
+  }
+
+  private static void readForeignKeys(ResultSet rs, JdbcSchema schema, boolean snowflake)
+      throws SQLException {
     Map<JdbcTable, List<JdbcReference>> references = new LinkedHashMap<>();
     Map<JdbcReference, TreeMap<Integer, String[]>> columns = new IdentityHashMap<>();
     JdbcReference current = null;
     while (rs.next()) {
-      JdbcTable table = schema.get(rs.getString("FKTABLE_NAME"));
-      String fkSchema = JdbcUtils.getStringSafe(rs, "FKTABLE_SCHEM");
-      String fkCatalog = JdbcUtils.getStringSafe(rs, "FKTABLE_CAT");
+      JdbcTable table = schema.get(rs.getString(snowflake ? "fk_table_name" : "FKTABLE_NAME"));
+      String fkSchema = JdbcUtils.getStringSafe(rs, snowflake ? "fk_schema_name" : "FKTABLE_SCHEM");
+      String fkCatalog =
+          JdbcUtils.getStringSafe(rs, snowflake ? "fk_database_name" : "FKTABLE_CAT");
       if (table == null
           || fkSchema != null && !fkSchema.isEmpty() && !schema.tableSchema.isEmpty()
               && !fkSchema.equalsIgnoreCase(schema.tableSchema)
@@ -304,11 +390,13 @@ final class JdbcKeyExtractor {
               && !fkCatalog.equalsIgnoreCase(schema.tableCatalog)) {
         continue;
       }
-      String fkName = JdbcUtils.getStringSafe(rs, "FK_NAME");
-      String pkCatalog = JdbcUtils.getStringSafe(rs, "PKTABLE_CAT", schema.tableCatalog);
-      String pkSchema = JdbcUtils.getStringSafe(rs, "PKTABLE_SCHEM", "");
-      String pkTable = rs.getString("PKTABLE_NAME");
-      int sequence = rs.getInt("KEY_SEQ");
+      String fkName = JdbcUtils.getStringSafe(rs, snowflake ? "fk_name" : "FK_NAME");
+      String pkCatalog = JdbcUtils.getStringSafe(rs, snowflake ? "pk_database_name" : "PKTABLE_CAT",
+          schema.tableCatalog);
+      String pkSchema =
+          JdbcUtils.getStringSafe(rs, snowflake ? "pk_schema_name" : "PKTABLE_SCHEM", "");
+      String pkTable = rs.getString(snowflake ? "pk_table_name" : "PKTABLE_NAME");
+      int sequence = rs.getInt(snowflake ? "key_sequence" : "KEY_SEQ");
       List<JdbcReference> keys = references.computeIfAbsent(table, t -> new ArrayList<>());
       JdbcReference key = null;
       for (JdbcReference candidate : keys) {
@@ -326,19 +414,39 @@ final class JdbcKeyExtractor {
       }
       if (key == null) {
         key = new JdbcReference(pkCatalog, pkSchema, pkTable, table.tableCatalog, table.tableSchema,
-            table.tableName, readRule(rs, "UPDATE_RULE"), readRule(rs, "DELETE_RULE"), fkName,
-            JdbcUtils.getStringSafe(rs, "PK_NAME"), JdbcUtils.getShortSafe(rs, "DEFERRABILITY"));
+            table.tableName, readRule(rs, snowflake ? "update_rule" : "UPDATE_RULE"),
+            readRule(rs, snowflake ? "delete_rule" : "DELETE_RULE"), fkName,
+            JdbcUtils.getStringSafe(rs, snowflake ? "pk_name" : "PK_NAME"),
+            readDeferrability(rs, snowflake ? "deferrability" : "DEFERRABILITY"));
         keys.add(key);
         columns.put(key, new TreeMap<>());
       }
       columns.get(key).put(sequence,
-          new String[] {rs.getString("FKCOLUMN_NAME"), rs.getString("PKCOLUMN_NAME")});
+          new String[] {rs.getString(snowflake ? "fk_column_name" : "FKCOLUMN_NAME"),
+              rs.getString(snowflake ? "pk_column_name" : "PKCOLUMN_NAME")});
       current = key;
     }
     references.forEach((table, keys) -> {
       keys.forEach(key -> key.columns.addAll(columns.get(key).values()));
       table.foreignKeys.addAll(keys);
     });
+  }
+
+  private static Short readDeferrability(ResultSet rs, String column) {
+    String value = JdbcUtils.getStringSafe(rs, column);
+    if (value == null) {
+      return null;
+    }
+    switch (value.toUpperCase(java.util.Locale.ROOT)) {
+      case "NOT DEFERRABLE":
+        return DatabaseMetaData.importedKeyNotDeferrable;
+      case "INITIALLY DEFERRED":
+        return DatabaseMetaData.importedKeyInitiallyDeferred;
+      case "INITIALLY IMMEDIATE":
+        return DatabaseMetaData.importedKeyInitiallyImmediate;
+      default:
+        return JdbcUtils.getShortSafe(rs, column);
+    }
   }
 
   private static Short readRule(ResultSet rs, String column) {
@@ -494,9 +602,8 @@ final class JdbcKeyExtractor {
         return null;
       });
     }
-    if (options.comments && (type == JdbcUtils.DatabaseSpecific.MSSQL
-        || type == JdbcUtils.DatabaseSpecific.MYSQL || type == JdbcUtils.DatabaseSpecific.SNOWFLAKE
-        || type == JdbcUtils.DatabaseSpecific.ORACLE
+    if (options.comments && (type == JdbcUtils.DatabaseSpecific.MSSQL || type.isMySqlFamily()
+        || type == JdbcUtils.DatabaseSpecific.SNOWFLAKE || type == JdbcUtils.DatabaseSpecific.ORACLE
         || type == JdbcUtils.DatabaseSpecific.DUCKDB)) {
       probe(conn, () -> {
         String query = commentsQuery(conn, type, schema);
@@ -558,8 +665,8 @@ final class JdbcKeyExtractor {
           + "FROM duckdb_columns() WHERE schema_name=?" + catalogClause;
     }
     String info = prefix(conn, type, schema) + "information_schema.";
-    String tableComment = type == JdbcUtils.DatabaseSpecific.MYSQL ? "TABLE_COMMENT" : "COMMENT";
-    String columnComment = type == JdbcUtils.DatabaseSpecific.MYSQL ? "COLUMN_COMMENT" : "COMMENT";
+    String tableComment = type.isMySqlFamily() ? "TABLE_COMMENT" : "COMMENT";
+    String columnComment = type.isMySqlFamily() ? "COLUMN_COMMENT" : "COMMENT";
     return "SELECT TABLE_NAME, NULL AS COLUMN_NAME, " + tableComment + " AS COMMENT_TEXT FROM "
         + info + "tables WHERE TABLE_SCHEMA=? UNION ALL SELECT TABLE_NAME, COLUMN_NAME, "
         + columnComment + " AS COMMENT_TEXT FROM " + info + "columns WHERE TABLE_SCHEMA=?";

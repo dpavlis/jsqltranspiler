@@ -29,6 +29,11 @@ final class LiveDatabaseProperties {
   private LiveDatabaseProperties() {}
 
   static Connection connect(String database) throws IOException, SQLException {
+    return connect(database, new Properties());
+  }
+
+  static Connection connect(String database, Properties overrides)
+      throws IOException, SQLException {
     Path path = Path.of(System.getProperty("liveDatabasesFile", "live-databases.properties"));
     assumeTrue(Files.isRegularFile(path), "Live database properties file is absent");
     Properties properties = new Properties();
@@ -37,7 +42,11 @@ final class LiveDatabaseProperties {
     }
     String url = properties.getProperty(database + ".url");
     assumeTrue(url != null && !url.isBlank(), "Live database endpoint is not configured");
-    return DriverManager.getConnection(url, properties.getProperty(database + ".user"),
-        properties.getProperty(database + ".password"));
+    Properties connectionProperties = new Properties();
+    connectionProperties.setProperty("user", properties.getProperty(database + ".user", ""));
+    connectionProperties.setProperty("password",
+        properties.getProperty(database + ".password", ""));
+    connectionProperties.putAll(overrides);
+    return DriverManager.getConnection(url, connectionProperties);
   }
 }

@@ -17,7 +17,6 @@ import ai.starlake.transpiler.JSQLColumResolver;
 import ai.starlake.transpiler.schema.treebuilder.JSONObjectTreeBuilder;
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
@@ -28,7 +27,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Savepoint;
 import java.sql.Statement;
@@ -36,13 +34,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Live PostgreSQL regression tests; credentials and endpoint are supplied by the environment. */
-@EnabledIfEnvironmentVariable(named = "POSTGRES_JDBC_URL", matches = ".+")
+/** Live PostgreSQL regressions configured through the local, ignored properties file. */
 class PostgreSqlMetaDataTest {
   @Test
   void northwindExpressionLineage() throws Exception {
-    try (Connection conn = DriverManager.getConnection(System.getenv("POSTGRES_JDBC_URL"),
-        System.getenv("POSTGRES_USER"), System.getenv("POSTGRES_PASSWORD"))) {
+    try (Connection conn = LiveDatabaseProperties.connect("postgresql")) {
       JdbcMetaData metadata = new JdbcMetaData(conn, List.of(conn.getSchema()));
       JSONObject node = new JSQLColumResolver(metadata)
           .getLineage(JSONObjectTreeBuilder.class,
@@ -61,8 +57,7 @@ class PostgreSqlMetaDataTest {
 
   @Test
   void bulkCatalogKeysPreserveTransactionAndHaveConstantQueryCount() throws Exception {
-    try (Connection conn = DriverManager.getConnection(System.getenv("POSTGRES_JDBC_URL"),
-        System.getenv("POSTGRES_USER"), System.getenv("POSTGRES_PASSWORD"))) {
+    try (Connection conn = LiveDatabaseProperties.connect("postgresql")) {
       conn.setAutoCommit(false);
       Savepoint before = conn.setSavepoint();
       String schema = "transpiler_keys_" + java.util.UUID.randomUUID().toString().replace("-", "");
@@ -193,8 +188,7 @@ class PostgreSqlMetaDataTest {
   @ParameterizedTest
   @CsvSource({"true,true", "true,false", "false,true", "false,false"})
   void scanPreservesTransaction(boolean autoCommit, boolean filtered) throws Exception {
-    try (Connection conn = DriverManager.getConnection(System.getenv("POSTGRES_JDBC_URL"),
-        System.getenv("POSTGRES_USER"), System.getenv("POSTGRES_PASSWORD"))) {
+    try (Connection conn = LiveDatabaseProperties.connect("postgresql")) {
       String catalog = conn.getCatalog();
       String schema = conn.getSchema();
       conn.setAutoCommit(autoCommit);

@@ -87,6 +87,16 @@ public class JdbcUtils {
     }
   }
 
+  static String quoteIdentifier(DatabaseMetaData metadata, String identifier) throws SQLException {
+    String quote = metadata.getIdentifierQuoteString();
+    quote = quote == null ? "" : quote.trim();
+    if (quote.isEmpty()) {
+      quote = "\"";
+    }
+    String close = "[".equals(quote) ? "]" : quote;
+    return quote + identifier.replace(close, close + close) + close;
+  }
+
   static String metadataCatalog(DatabaseMetaData metaData, String requestedCatalog)
       throws SQLException {
     if (requestedCatalog != null && !requestedCatalog.isEmpty()) {
@@ -94,7 +104,7 @@ public class JdbcUtils {
     }
     try {
       // Respect catalog-less drivers even if they expose a connection database name.
-      if (!DatabaseSpecific.getType(metaData.getDatabaseProductName()).usesJdbcMetadata()
+      if (DatabaseSpecific.getType(metaData.getDatabaseProductName()) != DatabaseSpecific.POSTGRESQL
           && !metaData.supportsCatalogsInTableDefinitions()
           && !metaData.supportsCatalogsInDataManipulation()) {
         return "";
@@ -104,6 +114,18 @@ public class JdbcUtils {
     } catch (SQLFeatureNotSupportedException ex) {
       return "";
     }
+  }
+
+  /** Connector/J's schema mode uses the synthetic catalog "def", not a SQL qualifier. */
+  static String metadataCatalogValue(DatabaseMetaData metadata, String catalog)
+      throws SQLException {
+    if ("def".equalsIgnoreCase(catalog)
+        && DatabaseSpecific.getType(metadata.getDatabaseProductName()).isMySqlFamily()
+        && !metadata.supportsCatalogsInTableDefinitions()
+        && !metadata.supportsCatalogsInDataManipulation()) {
+      return "";
+    }
+    return catalog;
   }
 
   static String metadataSchema(DatabaseMetaData metaData, String schemaPattern, boolean exactSchema)
@@ -129,7 +151,7 @@ public class JdbcUtils {
    */
 
   public enum KeyStrategy {
-    INFORMATION_SCHEMA, ORACLE, JDBC
+    INFORMATION_SCHEMA, ORACLE, SNOWFLAKE, JDBC
   }
 
   public enum DatabaseSpecific {
@@ -174,7 +196,7 @@ public class JdbcUtils {
     DB2("DB2", null,
         new String[] {"SYSCAT", "SYSIBM", "SYSIBMADM", "SYSSTAT", "SYSFUN", "SYSPROC", "SYSPUBLIC",
             "SYSIBMINTERNAL", "SYSIBMTS", "SYSTOOLS", "NULLID", "SQLJ"},
-        "SELECT CURRENT SERVER, CURRENT SCHEMA FROM SYSIBM.SYSDUMMY1"),
+        "SELECT RTRIM(CURRENT SERVER), RTRIM(CURRENT SCHEMA) FROM SYSIBM.SYSDUMMY1"),
     // BigQuery maps projects to catalogs and datasets to schemas. The default dataset may be null.
     BIGQUERY("BIGQUERY", null, new String[] {"INFORMATION_SCHEMA"},
         "SELECT COALESCE(@@dataset_project_id, @@project_id), @@dataset_id", "BIG QUERY"),
@@ -187,17 +209,25 @@ public class JdbcUtils {
     H2("H2", null, new String[] {"INFORMATION_SCHEMA"},
         "SELECT current_catalog(), current_schema()"),
     // --
-    OTHER("OTHER", null, null, "SELECT current_database(), current_schema()");
+    SQLITE("SQLITE", null, null, null), DERBY("DERBY", null, null, null), INFORMIX("INFORMIX", null,
+        null, null), OTHER("OTHER", null, null, "SELECT current_database(), current_schema()");
+
+    /** Whether MySQL-compatible catalog and INFORMATION_SCHEMA conventions apply. */
+    public boolean isMySqlFamily() {
+      return this == MYSQL || this == MARIADB;
+    }
 
     public KeyStrategy getKeyStrategy() {
       switch (this) {
         case POSTGRESQL:
         case MYSQL:
+        case MARIADB:
         case MSSQL:
-        case SNOWFLAKE:
         case H2:
         case DUCKDB:
           return KeyStrategy.INFORMATION_SCHEMA;
+        case SNOWFLAKE:
+          return KeyStrategy.SNOWFLAKE;
         case ORACLE:
           return KeyStrategy.ORACLE;
         default:
@@ -255,12 +285,35 @@ public class JdbcUtils {
 
     /**
      * PostgreSQL metadata must not use speculative SQL: an error aborts a caller transaction. Its
-     * JDBC driver also supplies vendor-specific column types and comments.
+     * JDBC driver also supplies vendor-specific column types and comments. Databases without
+     * INFORMATION_SCHEMA also use JDBC directly. MySQL/MariaDB use JDBC to preserve the driver
+     * mapping of databases to catalogs or schemas. Snowflake and Databricks enumerate JDBC catalogs
+     * explicitly to avoid current-catalog-only INFORMATION_SCHEMA results.
      *
      * @return whether extraction should use JDBC metadata directly
      */
     public boolean usesJdbcMetadata() {
-      return this == POSTGRESQL;
+      return this == POSTGRESQL || isMySqlFamily() || usesCatalogScopedJdbcMetadata()
+          || !supportsInformationSchema();
+    }
+
+    /** Profiles whose JDBC discovery must enumerate each catalog explicitly. */
+    boolean usesCatalogScopedJdbcMetadata() {
+      return this == SNOWFLAKE || this == DATABRICKS;
+    }
+
+    /** Whether INFORMATION_SCHEMA queries may be used, including guarded probes for OTHER. */
+    public boolean supportsInformationSchema() {
+      switch (this) {
+        case ORACLE:
+        case DB2:
+        case SQLITE:
+        case DERBY:
+        case INFORMIX:
+          return false;
+        default:
+          return true;
+      }
     }
 
     public String getCurrentSchemaQuery() {
@@ -351,7 +404,8 @@ public class JdbcUtils {
 
   static Integer getIntSafe(ResultSet rs, String columnName) {
     try {
-      return rs.getInt(columnName);
+      int value = rs.getInt(columnName);
+      return rs.wasNull() ? null : value;
     } catch (SQLException e) {
       return null;
     }
@@ -359,7 +413,8 @@ public class JdbcUtils {
 
   static Short getShortSafe(ResultSet rs, String columnName) {
     try {
-      return rs.getShort(columnName);
+      short value = rs.getShort(columnName);
+      return rs.wasNull() ? null : value;
     } catch (SQLException e) {
       return null;
     }

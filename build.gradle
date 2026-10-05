@@ -96,6 +96,9 @@ dependencies {
 
     testRuntimeOnly "org.postgresql:postgresql:${findProperty('postgresJdbcVersion') ?: '42.7.13'}"
 
+    testRuntimeOnly "com.ibm.db2:jcc:${findProperty('db2JdbcVersion') ?: '11.5.7.0'}"
+    testRuntimeOnly "com.mysql:mysql-connector-j:${findProperty('mysqlJdbcVersion') ?: '8.2.0'}"
+
     testRuntimeOnly "com.oracle.database.jdbc:ojdbc11:${findProperty('oracleJdbcVersion') ?: '23.6.0.24.10'}"
     testRuntimeOnly "com.microsoft.sqlserver:mssql-jdbc:${findProperty('mssqlJdbcVersion') ?: '12.8.1.jre11'}"
 

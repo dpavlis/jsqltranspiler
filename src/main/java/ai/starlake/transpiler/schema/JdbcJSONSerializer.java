@@ -71,6 +71,7 @@ public class JdbcJSONSerializer {
     metadata.clear();
     metadata.setCatalogsList(catalogs);
     restoreScopes(metadata);
+    metadata.normalizeCurrentCatalog(false);
     return metadata;
 
   }
@@ -330,7 +331,7 @@ public class JdbcJSONSerializer {
     JdbcColumn column = new JdbcColumn(json.getString("name"));
     column.typeName = json.getString("type");
     column.dataType = json.getInt("typeID");
-    column.columnSize = json.getInt("size");
+    column.columnSize = json.has("size") ? json.getInt("size") : null;
     column.isNullable = readBoolean(json, "isNullable");
     column.nullable = "YES".equals(column.isNullable) ? DatabaseMetaData.columnNullable
         : "NO".equals(column.isNullable) ? DatabaseMetaData.columnNoNulls
@@ -340,9 +341,7 @@ public class JdbcJSONSerializer {
     column.ordinalPosition = json.has("ordinalPosition") ? json.getInt("ordinalPosition") : null;
     column.isAutomaticIncrement = readBoolean(json, "autoIncrement");
     column.isGeneratedColumn = readBoolean(json, "generated");
-    if (json.has("decimalDigits")) {
-      column.decimalDigits = json.getInt("decimalDigits");
-    }
+    column.decimalDigits = json.has("decimalDigits") ? json.getInt("decimalDigits") : null;
 
     return column;
   }

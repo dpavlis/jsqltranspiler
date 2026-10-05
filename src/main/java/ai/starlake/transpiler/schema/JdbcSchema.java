@@ -84,6 +84,78 @@ public class JdbcSchema implements Comparable<JdbcSchema> {
     return jdbcSchemas;
   }
 
+  /** Catalog-scoped discovery; unscoped fallback must not invent ownership. */
+  static Collection<JdbcSchema> getSchemas(DatabaseMetaData metaData, Collection<String> catalogs)
+      throws SQLException {
+    return getSchemas(metaData, catalogs, List.of(), catalogs);
+  }
+
+  static Collection<JdbcSchema> getSchemas(DatabaseMetaData metaData, Collection<String> catalogs,
+      List<String[]> patterns, Collection<String> visibleCatalogs) throws SQLException {
+    List<JdbcSchema> schemas = new ArrayList<>();
+    try {
+      for (String catalog : catalogs) {
+        Set<String> schemaPatterns = new java.util.LinkedHashSet<>();
+        if (patterns.isEmpty()) {
+          schemaPatterns.add(null);
+        } else {
+          for (String[] pattern : patterns) {
+            if (pattern[0] == null || catalog.equalsIgnoreCase(pattern[0])) {
+              String escape = metaData.getSearchStringEscape();
+              schemaPatterns
+                  .add(escape == null || escape.isEmpty() || "\\".equals(escape) ? pattern[1]
+                      : pattern[1].replace("\\", escape));
+            }
+          }
+        }
+        for (String schemaPattern : schemaPatterns) {
+          try (ResultSet rs = metaData.getSchemas(catalog, schemaPattern)) {
+            readJdbcSchemas(rs, catalog, schemas);
+          } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
+            throw unsupported;
+          } catch (SQLException failure) {
+            boolean visible = visibleCatalogs.stream().anyMatch(catalog::equalsIgnoreCase);
+            if (visible && ("42501".equals(failure.getSQLState()) || failure.getErrorCode() == 2003
+                || failure.getErrorCode() == 2043)) {
+              LOGGER.fine("Skipping unreadable catalog " + catalog + ": " + failure.getMessage());
+            } else {
+              throw failure;
+            }
+          }
+        }
+      }
+      if (!catalogs.isEmpty()) {
+        return schemas.stream().distinct().collect(java.util.stream.Collectors.toList());
+      }
+    } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
+      // Discard partial scoped results and read the unscoped API only once.
+      schemas.clear();
+    }
+    String fallbackCatalog = catalogs.size() == 1 ? catalogs.iterator().next() : null;
+    try (ResultSet rs = metaData.getSchemas()) {
+      readJdbcSchemas(rs, fallbackCatalog, schemas);
+    }
+    return schemas.stream().distinct().collect(java.util.stream.Collectors.toList());
+  }
+
+  private static void readJdbcSchemas(ResultSet rs, String fallbackCatalog,
+      Collection<JdbcSchema> schemas) throws SQLException {
+    while (rs.next()) {
+      String schema = rs.getString("TABLE_SCHEM");
+      if (schema == null || schema.isBlank()) {
+        continue;
+      }
+      String catalog = JdbcUtils.getStringSafe(rs, "TABLE_CATALOG");
+      if (catalog == null || catalog.isEmpty()) {
+        if (fallbackCatalog == null) {
+          throw new SQLException("Schema " + schema + " has ambiguous catalog ownership");
+        }
+        catalog = fallbackCatalog;
+      }
+      schemas.add(new JdbcSchema(schema, catalog));
+    }
+  }
+
   public static Collection<JdbcSchema> getSchemas(DatabaseMetaData metaData) throws SQLException {
     String defaultCatalog = JdbcUtils.metadataCatalog(metaData, null);
     ArrayList<JdbcSchema> jdbcSchemas = new ArrayList<>();
@@ -101,7 +173,8 @@ public class JdbcSchema implements Comparable<JdbcSchema> {
         // TABLE_SCHEM String => schema name
         String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM");
         // TABLE_CATALOG String => catalog name (maybe null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CATALOG", defaultCatalog);
+        String tableCatalog = JdbcUtils.metadataCatalogValue(metaData,
+            JdbcUtils.getStringSafe(rs, "TABLE_CATALOG", defaultCatalog));
         if (tableSchema != null && !tableSchema.isBlank()) {
           JdbcSchema jdbcSchema = new JdbcSchema(tableSchema, tableCatalog);
           jdbcSchemas.add(jdbcSchema);

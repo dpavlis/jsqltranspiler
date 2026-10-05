@@ -88,7 +88,8 @@ public class JdbcResultSetMetaData implements ResultSetMetaData {
 
   @Override
   public int getColumnDisplaySize(int column) throws SQLException {
-    return columns.get(column - 1).columnSize;
+    Integer size = columns.get(column - 1).columnSize;
+    return size == null ? 0 : size;
   }
 
   @Override
@@ -130,12 +131,14 @@ public class JdbcResultSetMetaData implements ResultSetMetaData {
 
   @Override
   public int getPrecision(int column) throws SQLException {
-    return columns.get(column - 1).columnSize;
+    Integer size = columns.get(column - 1).columnSize;
+    return size == null ? 0 : size;
   }
 
   @Override
   public int getScale(int column) throws SQLException {
-    return columns.get(column - 1).decimalDigits;
+    Integer scale = columns.get(column - 1).decimalDigits;
+    return scale == null ? 0 : scale;
   }
 
   @Override

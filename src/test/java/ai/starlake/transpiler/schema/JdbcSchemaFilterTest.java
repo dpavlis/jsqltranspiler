@@ -67,6 +67,38 @@ class JdbcSchemaFilterTest {
   }
 
   @Test
+  void quotedCatalogNamesTreatWildcardCharactersLiterally() throws SQLException {
+    assertArrayEquals(new String[] {"SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1"},
+        JdbcMetaData.parseSchemaPattern("\"SNOWFLAKE_SAMPLE_DATA\".TPCH_SF1"));
+    assertArrayEquals(new String[] {"A%B", "PUBLIC"},
+        JdbcMetaData.parseSchemaPattern("\"A%B\".PUBLIC"));
+    assertArrayEquals(new String[] {"SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1"},
+        JdbcMetaData.parseSchemaPattern("SNOWFLAKE_SAMPLE_DATA.TPCH_SF1"));
+    assertArrayEquals(new String[] {"A%B", "PUBLIC"},
+        JdbcMetaData.parseSchemaPattern("A%B.PUBLIC"));
+    assertArrayEquals(new String[] {"my_db", "stage%"},
+        JdbcMetaData.parseSchemaPattern("my_db.stage%"));
+    assertArrayEquals(new String[] {"my.db", "public"},
+        JdbcMetaData.parseSchemaPattern("\"my.db\".public"));
+    String quotedCatalog = "\"" + conn.getCatalog().replace("\"", "\"\"") + "\"";
+    assertEquals(List.of("SALES.CUSTOMERS", "SALES.ORDERS"),
+        tables(new JdbcMetaData(conn, List.of(quotedCatalog + ".SALES"))));
+    assertEquals(List.of("SALES.CUSTOMERS", "SALES.ORDERS"),
+        tables(new JdbcMetaData(conn, List.of(conn.getCatalog() + ".SALES"))));
+  }
+
+  @Test
+  void unquotedCatalogWithUnderscoreExtractsSchemas() throws SQLException {
+    try (Connection named = DriverManager.getConnection("jdbc:h2:mem:TEST_DB");
+        Statement st = named.createStatement()) {
+      st.execute("CREATE SCHEMA STAGE");
+      st.execute("CREATE TABLE STAGE.T(ID INT)");
+      JdbcMetaData md = new JdbcMetaData(named, List.of("TEST_DB.STAGE"));
+      assertNotNull(md.get("TEST_DB").get("STAGE").get("T"));
+    }
+  }
+
+  @Test
   void filtersAndCompatibility() throws SQLException {
     JdbcMetaData all = new JdbcMetaData(conn);
     assertTrue(tables(all)
@@ -107,7 +139,7 @@ class JdbcSchemaFilterTest {
         JdbcMetaData.parseSchemaPattern("\"my\"\"db\".\"pub.lic\""));
     assertArrayEquals(new String[] {"a.b", "c"}, JdbcMetaData.parseSchemaPattern("a.b.c"));
     for (String invalid : Arrays.asList(null, "", "  ", ".public", "dwh.", "\"dwh.public",
-        "dw\"h.public", "\"a\"x.public", "d%.public", "d_.public", "\"\"")) {
+        "dw\"h.public", "\"a\"x.public", "\"\"")) {
       assertThrows(IllegalArgumentException.class, () -> JdbcMetaData.parseSchemaPattern(invalid));
     }
   }

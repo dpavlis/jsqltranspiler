@@ -82,6 +82,7 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
 
     Table table = column.getTable();
     if (table != null) {
+      metaData.resolveTableScope(table);
       columnTableName = table.getUnquotedName();
 
       if (table.getSchemaName() != null) {

@@ -4,6 +4,20 @@ Changelog of jsqltranspiler
 
 ## Unreleased
 
+### Changed
+
+* Snowflake DATE columns use precision 10 when JDBC column metadata reports zero or null,
+  matching query result metadata and retaining that value through catalog JSON round trips.
+
+* Schema filters without a catalog now select the connection's current catalog when available.
+  Set `JdbcMetaDataOptions.setAllCatalogs(true)` to retain matching across all visible catalogs.
+  Empty filter collections still perform unrestricted extraction. Catalog qualifiers are exact
+  names, including literal `_` and `%` characters.
+* Snowflake reads keys with two schema-wide `SHOW` queries, falling back to schema-wide JDBC
+  before per-table calls. Filtered Snowflake/Databricks schema discovery visits only selected
+  catalogs and passes schema patterns to JDBC; unreadable automatically discovered catalogs
+  are skipped at FINE logging level.
+
 ### Added
 
 * Optional Oracle 23 and SQL Server 2022 live catalog regression tests, configured through a

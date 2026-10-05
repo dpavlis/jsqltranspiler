@@ -1,8 +1,22 @@
 # Copy to live-databases.properties (ignored by Git) and fill in local values.
 # Alternatively pass -PliveDatabasesFile=/absolute/path/to/private.properties.
-oracle.url=
+oracle.url=jdbc:oracle:thin:@//<host>:<port>/<service-name>
 oracle.user=
 oracle.password=
-mssql.url=
+mssql.url=jdbc:sqlserver://<host>:<port>;databaseName=<database>
 mssql.user=
 mssql.password=
+postgresql.url=jdbc:postgresql://<host>:<port>/<database>
+postgresql.user=
+postgresql.password=
+db2.url=jdbc:db2://<host>:<port>/<database>
+db2.user=
+db2.password=
+mysql.url=jdbc:mysql://<host>:<port>/<database>
+mysql.user=
+mysql.password=
+
+# Read-only Snowflake sample database tests. Choose an existing warehouse for SQL probes.
+# snowflake.url=jdbc:snowflake://ORG-ACCOUNT.snowflakecomputing.com/?role=ACCOUNTADMIN&db=SNOWFLAKE_SAMPLE_DATA&schema=TPCH_SF1&warehouse=YOUR_WAREHOUSE&loginTimeout=30
+# snowflake.user=YOUR_SNOWFLAKE_LOGIN
+# snowflake.password=YOUR_SNOWFLAKE_PASSWORD

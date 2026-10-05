@@ -71,6 +71,38 @@ class JdbcCatalogKeysTest {
     return new JdbcMetaData(conn, List.of("PUBLIC"), options);
   }
 
+  @Test
+  void jdbcKeyFallbackUsesPerTableWhenNullTableIsRejected() throws Exception {
+    JdbcMetaData metadata = scan(JdbcMetaDataOptions.none());
+    AtomicInteger fkCalls = new AtomicInteger();
+    DatabaseMetaData md = (DatabaseMetaData) Proxy.newProxyInstance(getClass().getClassLoader(),
+        new Class<?>[] {DatabaseMetaData.class}, (proxy, method, args) -> {
+          if ("getDatabaseProductName".equals(method.getName())) {
+            return "DB2";
+          }
+          if ("getImportedKeys".equals(method.getName())) {
+            fkCalls.incrementAndGet();
+            if (args[2] == null) {
+              throw new java.sql.SQLFeatureNotSupportedException("Null table unsupported");
+            }
+          }
+          return invoke(conn.getMetaData(), method, args);
+        });
+    Connection profile = (Connection) Proxy.newProxyInstance(getClass().getClassLoader(),
+        new Class<?>[] {Connection.class}, (proxy, method, args) -> {
+          if ("getMetaData".equals(method.getName())) {
+            return md;
+          }
+          return invoke(conn, method, args);
+        });
+    JdbcKeyExtractor.enrich(profile, metadata,
+        JdbcMetaDataOptions.defaults().setComments(false).setColumnDetails(false));
+    assertEquals(metadata.get(conn.getCatalog()).get("PUBLIC").tables.size() + 1, fkCalls.get());
+    assertEquals(1, table(metadata, "ORDERS").foreignKeys.size());
+    assertEquals(2, table(metadata, "ORDER_DETAILS").foreignKeys.size());
+    assertEquals(1, table(metadata, "COMPOSITE_CHILD").foreignKeys.size());
+  }
+
   private JdbcTable table(JdbcMetaData md, String name) throws Exception {
     return md.get(conn.getCatalog()).get("PUBLIC").get(name);
   }
@@ -210,7 +242,7 @@ class JdbcCatalogKeysTest {
     AtomicInteger calls = new AtomicInteger();
     Connection fallback = observe(calls, null, true, false);
     JdbcMetaData md = new JdbcMetaData(fallback, List.of("PUBLIC"), JdbcMetaDataOptions.defaults());
-    assertEquals(6, calls.get());
+    assertEquals(7, calls.get());
     assertEquals(2, table(md, "ORDER_DETAILS").primaryKey.columnNames.size());
     assertEquals(2, table(md, "ORDER_DETAILS").foreignKeys.size());
     assertNull(table(md, "NO_PK").primaryKey);
