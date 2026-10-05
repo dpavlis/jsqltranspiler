@@ -155,14 +155,16 @@ In a caller transaction, speculative SQL (including current-context lookup) runs
 savepoint. On query failure the scanner rolls back only to that savepoint before JDBC fallback.
 It never commits, rolls back the whole transaction, or changes auto-commit. Drivers without
 savepoint support skip SQL probes and use JDBC metadata; current context uses connection getters.
-Failures while creating, releasing or rolling back a savepoint are propagated so the scanner
-cannot continue using an uncertain transaction. With auto-commit enabled, normal query fallback
+Failures while creating or rolling back a savepoint, and actual release failures, are propagated
+so the scanner cannot continue using an uncertain transaction. Unsupported release is harmless:
+Oracle and SQL Server savepoints remain until the caller ends the transaction. With auto-commit enabled, normal query fallback
 continues unchanged.
 
 All database profiles have simulated-driver regression coverage for missing catalog/schema
 values, failed probes and absent savepoint support. PostgreSQL additionally has live coverage
-against PostgreSQL 12.10 using drivers 42.7.3 and 42.7.13. Other products require live integration
-checks with their own drivers and server versions.
+against PostgreSQL 12.10 using drivers 42.7.3 and 42.7.13. Oracle 23 and SQL Server 2022 have
+optional live coverage for catalog enrichment and transaction preservation. Other products
+require live integration checks with their own drivers and server versions.
 
 
 Step 2: Rewrite the Star Operators
@@ -431,6 +433,32 @@ nor discards earlier work and that caller savepoints remain valid.
 Use ``-PpostgresJdbcVersion=42.7.3`` to run these tests with an older JDBC driver; the default
 is 42.7.13. Live test output records the server/driver versions and extracted table/column counts.
 
+Oracle and SQL Server live catalog tests
+=======================================
+
+Copy ``live-databases.properties.example`` to ``live-databases.properties`` and fill in the
+``oracle.url``, ``oracle.user``, ``oracle.password`` and/or corresponding ``mssql.*`` properties.
+The local file is ignored by Git; keep it outside source/resources directories. An alternative
+private file can be selected with ``-PliveDatabasesFile=/absolute/path/to/private.properties``.
+Absent files or unconfigured endpoints skip the corresponding tests; configured connection
+failures fail the tests. Run::
+
+    ./gradlew test --tests '*OracleSqlServerMetaDataTest'
+
+The tests create uniquely named tables in Oracle's existing login schema and a uniquely named
+SQL Server schema. They explicitly drop their fixtures afterward because Oracle DDL commits.
+The accounts need permissions to create/drop these fixtures, add comments and read catalog
+metadata. Tests preserve existing objects and verify primary/composite foreign keys, cascade
+rules, comments, defaults, identity/generated flags, ordinal positions, optional indexes,
+case-insensitive schema filtering, JSON round trips, and empty unmatched results. Caller work,
+connection scope and savepoints are checked with auto-commit both enabled and disabled. Metadata
+call counts must remain constant when 20 tables are added; per-table key fallbacks fail the test.
+
+Default test drivers are Oracle ojdbc11 23.6.0.24.10 and Microsoft JDBC 12.8.1.jre11; override with
+``-PoracleJdbcVersion=...`` and ``-PmssqlJdbcVersion=...``. Drivers are test-runtime dependencies
+and are not bundled into the transpiler JAR.
+
+
 Expression-aware lineage
 ------------------------
 
@@ -462,3 +490,50 @@ dependencies. After conversion, ``getColumnAttributes()`` provides the same top-
 keyed by result label, including ``expression`` and ``definition``. Literal and parameter leaves
 are excluded from the physical dependency sets. JSON object output retains its nested child
 arrays; JSON text output retains its flat child arrays. SQL text is escaped for both JSON and XML.
+
+Keys and catalog details
+------------------------
+
+The existing connection constructors retain their scan cost and compact catalog JSON. For an
+export with keys and column details, opt in using::
+
+    JdbcMetaData metadata = new JdbcMetaData(connection, List.of("public"),
+        JdbcMetaDataOptions.defaults());
+
+Defaults enable primary keys, imported foreign keys, comments and column details. Indexes are
+more expensive and are disabled by default; enable them with ``setIndices(true)``. Each setting
+has a fluent ``set...``/``with...`` method. ``JdbcMetaDataOptions.none()`` disables enrichment;
+null options select defaults. The constructor snapshots the settings, so later mutations do not
+change its output. ``getExtractionOptions()`` returns a copy.
+
+Keys are loaded only for retained schemas. INFORMATION_SCHEMA queries read primary keys in bulk
+for PostgreSQL, MySQL, SQL Server, Snowflake, H2 and DuckDB. Oracle uses ALL_CONSTRAINTS and
+ALL_CONS_COLUMNS. PostgreSQL's JDBC driver supplies imported keys with a null table in one call
+per schema. Other INFORMATION_SCHEMA paths join referential constraints to ordered column pairs;
+SQL Server uses sys views for foreign keys because its INFORMATION_SCHEMA lacks the referenced
+column position. Other profiles try schema-wide JDBC imported keys. Unsupported bulk paths fall
+back to per-table JDBC calls. Indexes use approximate ``getIndexInfo`` per table when enabled.
+
+A schema-wide native column read supplements identity/generated flags when the generic
+INFORMATION_SCHEMA mapping cannot infer them. PostgreSQL keeps its existing JDBC column details.
+Dialect comment queries supplement existing JDBC remarks where available. Unsupported comment
+queries retain the driver's remarks. Speculative queries are guarded by savepoints inside caller
+transactions; without savepoint support they are skipped. Recovery failures propagate, and the
+scan never commits or changes auto-commit. Metadata availability still depends on database/driver
+support and the caller's privileges.
+
+``JdbcTable.primaryKey`` is null for tables without a primary key. Unique constraints do not
+become primary keys. ``JdbcTable.foreignKeys`` holds imported keys, with column pairs in KEY_SEQ
+order as ``[foreignColumn, referencedColumn]``. Referenced catalog/schema/table names are kept even
+when that target is outside the schema filter. Key/index objects and index columns have public
+getters. Metadata copies preserve these fields independently.
+
+Catalog JSON adds table ``remarks``, ``primaryKey``, ``foreignKeys`` and optional ``indices``.
+Column details add ``ordinalPosition``, ``remarks``, ``default``, ``autoIncrement`` and ``generated``
+when known. Columns and key columns are serialized in their respective ordinal order.
+Referential rules use CASCADE, RESTRICT, SET_NULL, NO_ACTION or SET_DEFAULT. Additional index
+column details and foreign-key deferrability/referenced-key names preserve the full model on a
+JSON round trip. Readers continue to ignore unknown fields and read catalogs from older versions.
+Unknown ``isNullable`` is omitted and reads back as ``""`` / JDBC columnNullableUnknown; YES and
+NO are emitted as true and false. Legacy constructor JSON keeps its original fields, with this
+unknown-nullability correction.

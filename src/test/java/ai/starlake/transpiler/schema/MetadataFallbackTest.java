@@ -93,6 +93,59 @@ class MetadataFallbackTest {
   }
 
   @Test
+  void unsupportedSavepointReleasePreservesSuccessAndFailedProbeRecovery() throws SQLException {
+    try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+      conn.setAutoCommit(false);
+      Savepoint caller = conn.setSavepoint();
+      Connection noRelease = proxy(Connection.class, conn, (method, args) -> {
+        if (method.equals("releaseSavepoint")) {
+          throw new java.sql.SQLFeatureNotSupportedException("Release is unsupported");
+        }
+        return UNHANDLED;
+      });
+      assertEquals("result", JdbcUtils.metadataProbe(noRelease, () -> "result"));
+      SQLException original = new SQLException("Probe failure");
+      assertSame(original,
+          assertThrows(SQLException.class, () -> JdbcUtils.metadataProbe(noRelease, () -> {
+            throw original;
+          })));
+      conn.rollback(caller);
+      conn.rollback();
+    }
+  }
+
+  @Test
+  void realSavepointReleaseFailureStillStopsScan() throws SQLException {
+    try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+      conn.setAutoCommit(false);
+      Connection broken = proxy(Connection.class, conn, (method, args) -> {
+        if (method.equals("releaseSavepoint")) {
+          throw new SQLException("Release failed");
+        }
+        return UNHANDLED;
+      });
+      assertThrows(JdbcUtils.MetadataRecoveryException.class,
+          () -> JdbcUtils.metadataProbe(broken, () -> "result"));
+      conn.rollback();
+    }
+  }
+
+  @Test
+  void jsonDoesNotInventCatalogFromCurrentDatabase() {
+    JdbcMetaData metadata = new JdbcMetaData("FREEPDB1", "TEST");
+    metadata.clear();
+    JdbcCatalog catalog = new JdbcCatalog("", ".");
+    catalog.put(new JdbcSchema("TEST", ""));
+    metadata.put(catalog);
+    String json = JdbcJSONSerializer.toJson(metadata).toString();
+    JdbcMetaData restored = JdbcJSONSerializer.fromJson(new java.io.StringReader(json));
+    assertEquals(1, restored.getCatalogsList().size());
+    assertEquals("", restored.getCatalogsList().get(0).tableCatalog);
+    assertEquals("FREEPDB1", restored.getCurrentCatalogName());
+    assertEquals(json, JdbcJSONSerializer.toJson(restored).toString());
+  }
+
+  @Test
   void catalogLessDriverDoesNotAcquireConnectionCatalog() throws SQLException {
     try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
       DatabaseMetaData md = proxy(DatabaseMetaData.class, conn.getMetaData(), (method, args) -> {

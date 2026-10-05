@@ -53,6 +53,7 @@ public class JdbcTable implements Comparable<JdbcTable> {
   public CaseInsensitiveLinkedHashMap<JdbcColumn> columns = new CaseInsensitiveLinkedHashMap<>();
   public CaseInsensitiveLinkedHashMap<JdbcIndex> indices = new CaseInsensitiveLinkedHashMap<>();
   public JdbcPrimaryKey primaryKey = null;
+  public List<JdbcReference> foreignKeys = new ArrayList<>();
 
   public JdbcTable(String tableCatalog, String tableSchema, String tableName, String tableType,
       String remarks, String typeCatalog, String typeSchema, String typeName,
@@ -473,7 +474,7 @@ public class JdbcTable implements Comparable<JdbcTable> {
     return pattern.contains("%") || pattern.contains("_");
   }
 
-  private static String escapeSchema(DatabaseMetaData metaData, String schema) throws SQLException {
+  static String escapeSchema(DatabaseMetaData metaData, String schema) throws SQLException {
     String escape = metaData.getSearchStringEscape();
     if (schema == null || escape == null || escape.isEmpty()) {
       return schema;
@@ -611,10 +612,10 @@ public class JdbcTable implements Comparable<JdbcTable> {
 
       while (rs.next()) {
         // TABLE_CATALOG String => catalog name(may be null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT", "");
+        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT", this.tableCatalog);
 
         // TABLE_SCHEM String => schema name
-        String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM", "");
+        String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM", this.tableSchema);
 
         // TABLE_NAME String => table name
         String tableName = JdbcUtils.getStringSafe(rs, "TABLE_NAME");
@@ -632,6 +633,9 @@ public class JdbcTable implements Comparable<JdbcTable> {
 
         // TYPE short => index type:
         Short type = JdbcUtils.getShortSafe(rs, "TYPE");
+        if (indexName.isEmpty() || type != null && type == DatabaseMetaData.tableIndexStatistic) {
+          continue;
+        }
 
         // ORDINAL_POSITION short => column sequence number within index; zero when TYPE
         // is
@@ -678,15 +682,16 @@ public class JdbcTable implements Comparable<JdbcTable> {
   }
 
   public void getPrimaryKey(DatabaseMetaData metaData) throws SQLException {
+    primaryKey = null;
     try (ResultSet rs = metaData.getPrimaryKeys(tableCatalog, tableSchema, tableName);) {
       TreeMap<Short, String> columnNames = new TreeMap<>();
 
       while (rs.next()) {
         // TABLE_CATALOG String => catalog name (may be null)
-        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT");
+        String tableCatalog = JdbcUtils.getStringSafe(rs, "TABLE_CAT", this.tableCatalog);
 
         // TABLE_SCHEM String => schema name
-        String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM");
+        String tableSchema = JdbcUtils.getStringSafe(rs, "TABLE_SCHEM", this.tableSchema);
 
         // TABLE_NAME String => table name
         String tableName = JdbcUtils.getStringSafe(rs, "TABLE_NAME");
@@ -711,8 +716,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
         columnNames.put(keySequence, columnName);
       }
 
-      for (Entry<Short, String> e : columnNames.entrySet()) {
-        primaryKey.columnNames.add(e.getValue());
+      if (primaryKey != null) {
+        primaryKey.columnNames.addAll(columnNames.values());
       }
 
     }
@@ -839,7 +844,8 @@ public class JdbcTable implements Comparable<JdbcTable> {
     if (!Objects.equals(indices, jdbcTable.indices)) {
       return false;
     }
-    return Objects.equals(primaryKey, jdbcTable.primaryKey);
+    return Objects.equals(primaryKey, jdbcTable.primaryKey)
+        && Objects.equals(foreignKeys, jdbcTable.foreignKeys);
   }
 
   @Override
@@ -858,6 +864,7 @@ public class JdbcTable implements Comparable<JdbcTable> {
     result = 31 * result + columns.hashCode();
     result = 31 * result + (indices != null ? indices.hashCode() : 0);
     result = 31 * result + (primaryKey != null ? primaryKey.hashCode() : 0);
+    result = 31 * result + foreignKeys.hashCode();
     return result;
   }
 

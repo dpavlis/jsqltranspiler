@@ -22,6 +22,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.SQLException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Savepoint;
@@ -51,6 +57,137 @@ class PostgreSqlMetaDataTest {
       assertEquals(conn.getCatalog() + "." + conn.getSchema() + ".orders",
           freight.getString("table"));
     }
+  }
+
+  @Test
+  void bulkCatalogKeysPreserveTransactionAndHaveConstantQueryCount() throws Exception {
+    try (Connection conn = DriverManager.getConnection(System.getenv("POSTGRES_JDBC_URL"),
+        System.getenv("POSTGRES_USER"), System.getenv("POSTGRES_PASSWORD"))) {
+      conn.setAutoCommit(false);
+      Savepoint before = conn.setSavepoint();
+      String schema = "transpiler_keys_" + java.util.UUID.randomUUID().toString().replace("-", "");
+      try {
+        try (Statement st = conn.createStatement()) {
+          st.execute("CREATE SCHEMA " + schema);
+          st.execute("CREATE TABLE " + schema + ".customers(customer_id INT PRIMARY KEY)");
+          st.execute("CREATE TABLE " + schema + ".products(product_id INT PRIMARY KEY)");
+          st.execute("CREATE TABLE " + schema + ".orders(order_id SERIAL PRIMARY KEY, "
+              + "customer_id INT REFERENCES " + schema + ".customers)");
+          st.execute("CREATE TABLE " + schema + ".order_details(order_id INT, product_id INT, "
+              + "PRIMARY KEY(order_id,product_id), FOREIGN KEY(order_id) REFERENCES " + schema
+              + ".orders ON DELETE CASCADE, FOREIGN KEY(product_id) REFERENCES " + schema
+              + ".products)");
+          st.execute("COMMENT ON COLUMN " + schema + ".orders.order_id IS 'Order key'");
+          st.execute("INSERT INTO " + schema + ".customers VALUES (42)");
+        }
+        Savepoint caller = conn.setSavepoint();
+        AtomicInteger queries = new AtomicInteger();
+        AtomicInteger failures = new AtomicInteger();
+        AtomicInteger fkCalls = new AtomicInteger();
+        Connection measured = countMetadataQueries(conn, queries, failures, fkCalls);
+        JdbcMetaData small =
+            new JdbcMetaData(measured, List.of(schema), JdbcMetaDataOptions.defaults());
+        int smallCount = queries.get();
+        JdbcTable details = small.get(conn.getCatalog()).get(schema).get("order_details");
+        assertEquals(List.of("order_id", "product_id"), details.primaryKey.getColumnNames());
+        assertEquals(2, details.foreignKeys.size());
+        assertTrue(details.foreignKeys.stream().anyMatch(key -> key.deleteRule != null
+            && key.deleteRule == DatabaseMetaData.importedKeyCascade));
+        JdbcColumn id =
+            small.get(conn.getCatalog()).get(schema).get("orders").columns.get("order_id");
+        assertEquals("YES", id.isAutomaticIncrement);
+        assertEquals("Order key", id.remarks);
+        assertEquals(1, fkCalls.get());
+        try (Statement st = conn.createStatement()) {
+          for (int i = 0; i < 20; i++) {
+            st.execute("CREATE TABLE " + schema + ".many_" + i
+                + "(id INT PRIMARY KEY, customer_id INT REFERENCES " + schema + ".customers)");
+          }
+        }
+        queries.set(0);
+        fkCalls.set(0);
+        JdbcMetaData large =
+            new JdbcMetaData(measured, List.of(schema), JdbcMetaDataOptions.defaults());
+        assertEquals(24, large.get(conn.getCatalog()).get(schema).tables.size());
+        assertEquals(smallCount, queries.get(),
+            "Metadata round trips must be independent of table count");
+        assertEquals(1, fkCalls.get());
+        assertEquals(0, failures.get(), "No failing SQL probe is allowed on PostgreSQL");
+        assertFalse(conn.getAutoCommit());
+        conn.rollback(caller);
+        try (Statement st = conn.createStatement();
+            ResultSet rs = st.executeQuery("SELECT customer_id FROM " + schema + ".customers")) {
+          if (!rs.next()) {
+            fail("Scan must preserve caller work");
+          }
+          assertEquals(42, rs.getInt(1));
+        }
+        conn.rollback(before);
+        System.out.println("PostgreSQL bulk catalog keys: " + smallCount
+            + " metadata queries for both 4 and 24 tables; no failed statements");
+      } finally {
+        conn.rollback();
+      }
+    }
+  }
+
+  private Object invokeJdbc(Object target, Method method, Object[] args) throws Throwable {
+    try {
+      return method.invoke(target, args);
+    } catch (InvocationTargetException ex) {
+      throw ex.getCause();
+    }
+  }
+
+  private Connection countMetadataQueries(Connection conn, AtomicInteger queries,
+      AtomicInteger failures, AtomicInteger fkCalls) throws Exception {
+    Connection[] measured = new Connection[1];
+    DatabaseMetaData md = (DatabaseMetaData) Proxy.newProxyInstance(getClass().getClassLoader(),
+        new Class<?>[] {DatabaseMetaData.class}, (proxy, method, args) -> {
+          String name = method.getName();
+          if ("getConnection".equals(name)) {
+            return measured[0];
+          }
+          if ("getPrimaryKeys".equals(name)) {
+            fail("Primary keys must be read in bulk");
+          }
+          if ("getImportedKeys".equals(name)) {
+            assertNull(args[2], "Foreign keys must be read in bulk");
+            fkCalls.incrementAndGet();
+          }
+          if (List.of("getCatalogs", "getSchemas", "getTables", "getColumns", "getImportedKeys")
+              .contains(name)) {
+            queries.incrementAndGet();
+          }
+          return invokeJdbc(conn.getMetaData(), method, args);
+        });
+    measured[0] = (Connection) Proxy.newProxyInstance(getClass().getClassLoader(),
+        new Class<?>[] {Connection.class}, (proxy, method, args) -> {
+          if ("getMetaData".equals(method.getName())) {
+            return md;
+          }
+          Object result = invokeJdbc(conn, method, args);
+          if ("prepareStatement".equals(method.getName())
+              || "createStatement".equals(method.getName())) {
+            Class<?> api =
+                "prepareStatement".equals(method.getName()) ? java.sql.PreparedStatement.class
+                    : Statement.class;
+            return Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[] {api},
+                (p, m, a) -> {
+                  if ("executeQuery".equals(m.getName())) {
+                    queries.incrementAndGet();
+                  }
+                  try {
+                    return invokeJdbc(result, m, a);
+                  } catch (SQLException ex) {
+                    failures.incrementAndGet();
+                    throw ex;
+                  }
+                });
+          }
+          return result;
+        });
+    return measured[0];
   }
 
   @ParameterizedTest

@@ -48,69 +48,79 @@ public class JdbcReference {
     this.deferrability = deferrability;
   }
 
-  @Override
-  @SuppressWarnings({"PMD.CyclomaticComplexity"})
-  public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (!(o instanceof JdbcReference)) {
-      return false;
-    }
+  public String getPkTableCatalog() {
+    return pkTableCatalog;
+  }
 
-    JdbcReference jdbcReference = (JdbcReference) o;
+  public String getPkTableSchema() {
+    return pkTableSchema;
+  }
 
-    if (!Objects.equals(pkTableCatalog, jdbcReference.pkTableCatalog)) {
-      return false;
-    }
-    if (!Objects.equals(pkTableSchema, jdbcReference.pkTableSchema)) {
-      return false;
-    }
-    if (!pkTableName.equals(jdbcReference.pkTableName)) {
-      return false;
-    }
-    if (!Objects.equals(fkTableCatalog, jdbcReference.fkTableCatalog)) {
-      return false;
-    }
-    if (!Objects.equals(fkTableSchema, jdbcReference.fkTableSchema)) {
-      return false;
-    }
-    if (!fkTableName.equals(jdbcReference.fkTableName)) {
-      return false;
-    }
-    if (!Objects.equals(updateRule, jdbcReference.updateRule)) {
-      return false;
-    }
-    if (!Objects.equals(deleteRule, jdbcReference.deleteRule)) {
-      return false;
-    }
-    if (!fkName.equals(jdbcReference.fkName)) {
-      return false;
-    }
-    if (!pkName.equals(jdbcReference.pkName)) {
-      return false;
-    }
-    if (!Objects.equals(deferrability, jdbcReference.deferrability)) {
-      return false;
-    }
-    return Objects.equals(columns, jdbcReference.columns);
+  public String getPkTableName() {
+    return pkTableName;
+  }
+
+  public String getFkTableCatalog() {
+    return fkTableCatalog;
+  }
+
+  public String getFkTableSchema() {
+    return fkTableSchema;
+  }
+
+  public String getFkTableName() {
+    return fkTableName;
+  }
+
+  public Short getUpdateRule() {
+    return updateRule;
+  }
+
+  public Short getDeleteRule() {
+    return deleteRule;
+  }
+
+  public String getFkName() {
+    return fkName;
+  }
+
+  public String getPkName() {
+    return pkName;
+  }
+
+  public Short getDeferrability() {
+    return deferrability;
+  }
+
+  public java.util.List<String[]> getColumns() {
+    return java.util.Collections.unmodifiableList(columns);
   }
 
   @Override
-  @SuppressWarnings({"PMD.CyclomaticComplexity"})
+  public boolean equals(Object other) {
+    if (this == other) {
+      return true;
+    }
+    if (!(other instanceof JdbcReference)) {
+      return false;
+    }
+    JdbcReference that = (JdbcReference) other;
+    return Objects.equals(pkTableCatalog, that.pkTableCatalog)
+        && Objects.equals(pkTableSchema, that.pkTableSchema)
+        && Objects.equals(pkTableName, that.pkTableName)
+        && Objects.equals(fkTableCatalog, that.fkTableCatalog)
+        && Objects.equals(fkTableSchema, that.fkTableSchema)
+        && Objects.equals(fkTableName, that.fkTableName)
+        && Objects.equals(updateRule, that.updateRule)
+        && Objects.equals(deleteRule, that.deleteRule) && Objects.equals(fkName, that.fkName)
+        && Objects.equals(pkName, that.pkName) && Objects.equals(deferrability, that.deferrability)
+        && java.util.Arrays.deepEquals(columns.toArray(), that.columns.toArray());
+  }
+
+  @Override
   public int hashCode() {
-    int result = pkTableCatalog != null ? pkTableCatalog.hashCode() : 0;
-    result = 31 * result + (pkTableSchema != null ? pkTableSchema.hashCode() : 0);
-    result = 31 * result + pkTableName.hashCode();
-    result = 31 * result + (fkTableCatalog != null ? fkTableCatalog.hashCode() : 0);
-    result = 31 * result + (fkTableSchema != null ? fkTableSchema.hashCode() : 0);
-    result = 31 * result + fkTableName.hashCode();
-    result = 31 * result + (updateRule != null ? updateRule.hashCode() : 0);
-    result = 31 * result + (deleteRule != null ? deleteRule.hashCode() : 0);
-    result = 31 * result + fkName.hashCode();
-    result = 31 * result + pkName.hashCode();
-    result = 31 * result + (deferrability != null ? deferrability.hashCode() : 0);
-    result = 31 * result + (columns != null ? columns.hashCode() : 0);
-    return result;
+    return Objects.hash(pkTableCatalog, pkTableSchema, pkTableName, fkTableCatalog, fkTableSchema,
+        fkTableName, updateRule, deleteRule, fkName, pkName, deferrability,
+        java.util.Arrays.deepHashCode(columns.toArray()));
   }
 }

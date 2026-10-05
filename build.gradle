@@ -96,6 +96,9 @@ dependencies {
 
     testRuntimeOnly "org.postgresql:postgresql:${findProperty('postgresJdbcVersion') ?: '42.7.13'}"
 
+    testRuntimeOnly "com.oracle.database.jdbc:ojdbc11:${findProperty('oracleJdbcVersion') ?: '23.6.0.24.10'}"
+    testRuntimeOnly "com.microsoft.sqlserver:mssql-jdbc:${findProperty('mssqlJdbcVersion') ?: '12.8.1.jre11'}"
+
     testImplementation 'org.duckdb:duckdb_jdbc:1.5.2.0'
     testImplementation 'net.snowflake:snowflake-jdbc:+'
 
@@ -529,6 +532,14 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(Test).configureEach {
     maxParallelForks = 10
+    def liveDatabasesFile = file(findProperty('liveDatabasesFile') ?: 'live-databases.properties')
+    systemProperty 'liveDatabasesFile', liveDatabasesFile.absolutePath
+    inputs.property('liveDatabasesConfigured', liveDatabasesFile.isFile())
+    if (liveDatabasesFile.isFile()) {
+        // Live server state and private settings must be checked on every run.
+        outputs.upToDateWhen { false }
+        outputs.cacheIf { false }
+    }
 }
 
 tasks.register('gitChangelogTask', GitChangelogTask) {

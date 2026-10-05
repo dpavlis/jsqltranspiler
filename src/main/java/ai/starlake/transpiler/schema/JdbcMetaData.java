@@ -52,6 +52,8 @@ import ai.starlake.transpiler.schema.JdbcUtils.DatabaseSpecific;
  */
 @SuppressWarnings({"PMD.CyclomaticComplexity"})
 public final class JdbcMetaData implements DatabaseMetaData {
+  private JdbcMetaDataOptions extractionOptions = JdbcMetaDataOptions.defaults().setIndices(true);
+
   public final static Logger LOGGER = Logger.getLogger(JdbcMetaData.class.getName());
   public static final Map<Integer, String> SQL_TYPE_NAME_MAP = new HashMap<>();
 
@@ -432,6 +434,23 @@ public final class JdbcMetaData implements DatabaseMetaData {
    * @throws IllegalArgumentException when a pattern is invalid
    */
   public JdbcMetaData(Connection conn, Collection<String> schemaPatterns) throws SQLException {
+    this(conn, schemaPatterns, JdbcMetaDataOptions.none());
+  }
+
+  /**
+   * Extracts selected schemas with opt-in keys, comments, column details and indices. Options are
+   * copied; null uses defaults. Schema filtering also restricts enrichment, but imported keys may
+   * reference tables outside the selected schemas. Existing overloads use options.none().
+   *
+   * @param conn physical database connection
+   * @param schemaPatterns schema or catalog.schema LIKE patterns; null/empty selects all
+   * @param options enrichment settings; null enables defaults
+   * @throws SQLException when extraction or transaction recovery fails
+   */
+  public JdbcMetaData(Connection conn, Collection<String> schemaPatterns,
+      JdbcMetaDataOptions options) throws SQLException {
+    extractionOptions = options == null ? JdbcMetaDataOptions.defaults() : options.copy();
+
     List<String[]> patterns = new ArrayList<>();
     if (schemaPatterns != null) {
       for (String pattern : schemaPatterns) {
@@ -563,6 +582,12 @@ public final class JdbcMetaData implements DatabaseMetaData {
         }
       }
     }
+    JdbcKeyExtractor.enrich(conn, this, extractionOptions);
+
+  }
+
+  public JdbcMetaDataOptions getExtractionOptions() {
+    return extractionOptions.copy();
   }
 
   private String[] readCurrentContext(Connection conn) throws SQLException {
@@ -2090,6 +2115,7 @@ public final class JdbcMetaData implements DatabaseMetaData {
       CaseInsensitiveLinkedHashMap<Table> fromTables) {
     JdbcMetaData metaData1 =
         new JdbcMetaData(metaData.currentCatalogName, metaData.currentSchemaName);
+    metaData1.extractionOptions = metaData.extractionOptions.copy();
     metaData1.getFromTables().putAll(fromTables);
     // The enclosing scope travels with the copy; only the query's own tables are
     // decided per copy.
@@ -2144,6 +2170,7 @@ public final class JdbcMetaData implements DatabaseMetaData {
       JdbcColumn column1 = column.copyLineage();
       table1.add(column1);
     }
+    JdbcKeyExtractor.copyKeys(table, table1);
     return table1;
   }
 

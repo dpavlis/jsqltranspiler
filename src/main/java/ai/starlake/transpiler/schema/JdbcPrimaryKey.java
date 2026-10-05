@@ -33,39 +33,44 @@ public class JdbcPrimaryKey {
     this.primaryKeyName = primaryKeyName;
   }
 
+  public String getTableCatalog() {
+    return tableCatalog;
+  }
+
+  public String getTableSchema() {
+    return tableSchema;
+  }
+
+  public String getTableName() {
+    return tableName;
+  }
+
+  public String getPrimaryKeyName() {
+    return primaryKeyName;
+  }
+
+  public java.util.List<String> getColumnNames() {
+    return java.util.Collections.unmodifiableList(columnNames);
+  }
+
   @Override
-  public boolean equals(Object o) {
-    if (this == o) {
+  public boolean equals(Object other) {
+    if (this == other) {
       return true;
     }
-    if (!(o instanceof JdbcPrimaryKey)) {
+    if (!(other instanceof JdbcPrimaryKey)) {
       return false;
     }
-
-    JdbcPrimaryKey that = (JdbcPrimaryKey) o;
-
-    if (!Objects.equals(tableCatalog, that.tableCatalog)) {
-      return false;
-    }
-    if (!Objects.equals(tableSchema, that.tableSchema)) {
-      return false;
-    }
-    if (!tableName.equals(that.tableName)) {
-      return false;
-    }
-    if (!primaryKeyName.equals(that.primaryKeyName)) {
-      return false;
-    }
-    return columnNames.equals(that.columnNames);
+    JdbcPrimaryKey that = (JdbcPrimaryKey) other;
+    return Objects.equals(tableCatalog, that.tableCatalog)
+        && Objects.equals(tableSchema, that.tableSchema)
+        && Objects.equals(tableName, that.tableName)
+        && Objects.equals(primaryKeyName, that.primaryKeyName)
+        && Objects.equals(columnNames, that.columnNames);
   }
 
   @Override
   public int hashCode() {
-    int result = tableCatalog != null ? tableCatalog.hashCode() : 0;
-    result = 31 * result + (tableSchema != null ? tableSchema.hashCode() : 0);
-    result = 31 * result + tableName.hashCode();
-    result = 31 * result + primaryKeyName.hashCode();
-    result = 31 * result + columnNames.hashCode();
-    return result;
+    return Objects.hash(tableCatalog, tableSchema, tableName, primaryKeyName, columnNames);
   }
 }

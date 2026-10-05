@@ -6,6 +6,20 @@ Changelog of jsqltranspiler
 
 ### Added
 
+* Optional Oracle 23 and SQL Server 2022 live catalog regression tests, configured through a
+  Git-ignored local properties file. Isolated fixtures exercise enriched metadata, JSON,
+  transaction preservation and constant query counts as table counts grow.
+
+* Opt-in catalog enrichment through `JdbcMetaData(Connection, Collection<String>,
+  JdbcMetaDataOptions)`: primary keys, imported foreign keys, comments and column details by
+  default, with optional approximate indexes. Keys use schema-level bulk strategies and guarded
+  JDBC fallbacks; references outside the schema filter are retained. Public key/index getters
+  and `JdbcTable.foreignKeys` expose the results.
+* Catalog JSON stores ordered primary/foreign keys, referential actions, comments, defaults,
+  ordinal positions, identity/generated flags and optional indexes. Readers restore the new
+  fields and accept old JSON and unknown keys. Existing connection overloads retain compact JSON
+  and do not issue enrichment queries.
+
 * Expression-aware column lineage in JSON and XML: normalized SQL text, chained definitions,
   column/literal/parameter/function/operator/CASE/subquery kinds, literal types and parameter
   identifiers, aggregate/window flags, and condition/value/partition/order roles. Flattened
@@ -24,6 +38,15 @@ Changelog of jsqltranspiler
   retain unrestricted extraction. Database-specific system-schema exclusions still apply.
 
 ### Fixed
+
+* Support Oracle and SQL Server transaction scans when savepoint release is unsupported;
+  rollback protection remains active. Consume Oracle streaming column defaults before later
+  JDBC fields close the stream. Catalog JSON round trips no longer invent a catalog from the
+  current database name on catalog-less drivers.
+
+* Preserve unknown column nullability in catalog JSON by omitting `isNullable` instead of writing
+  false. Missing/null values read as JDBC unknown. Skip index statistics rows, handle PK-less
+  tables, preserve key/index metadata on copies, and compare foreign-key column pairs by content.
 
 * Preserve defining operators and aggregates through subqueries, CTEs and metadata-defined
   views instead of flattening their children and dropping the root operation. Preserve lineage

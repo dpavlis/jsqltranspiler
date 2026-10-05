@@ -46,53 +46,58 @@ public class JdbcIndex {
     return columns.put(ordinalPosition, column);
   }
 
-  @Override
-  @SuppressWarnings({"PMD.CyclomaticComplexity"})
-  public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (!(o instanceof JdbcIndex)) {
-      return false;
-    }
+  public String getTableCatalog() {
+    return tableCatalog;
+  }
 
-    JdbcIndex jdbcIndex = (JdbcIndex) o;
+  public String getTableSchema() {
+    return tableSchema;
+  }
 
-    if (!Objects.equals(tableCatalog, jdbcIndex.tableCatalog)) {
-      return false;
-    }
-    if (!Objects.equals(tableSchema, jdbcIndex.tableSchema)) {
-      return false;
-    }
-    if (!tableName.equals(jdbcIndex.tableName)) {
-      return false;
-    }
-    if (!nonUnique.equals(jdbcIndex.nonUnique)) {
-      return false;
-    }
-    if (!indexQualifier.equals(jdbcIndex.indexQualifier)) {
-      return false;
-    }
-    if (!indexName.equals(jdbcIndex.indexName)) {
-      return false;
-    }
-    if (!type.equals(jdbcIndex.type)) {
-      return false;
-    }
-    return columns.equals(jdbcIndex.columns);
+  public String getTableName() {
+    return tableName;
+  }
+
+  public Boolean getNonUnique() {
+    return nonUnique;
+  }
+
+  public String getIndexQualifier() {
+    return indexQualifier;
+  }
+
+  public String getIndexName() {
+    return indexName;
+  }
+
+  public Short getType() {
+    return type;
+  }
+
+  public java.util.Map<Short, JdbcIndexColumn> getColumns() {
+    return java.util.Collections.unmodifiableMap(columns);
   }
 
   @Override
-  @SuppressWarnings({"PMD.CyclomaticComplexity"})
+  public boolean equals(Object other) {
+    if (this == other) {
+      return true;
+    }
+    if (!(other instanceof JdbcIndex)) {
+      return false;
+    }
+    JdbcIndex that = (JdbcIndex) other;
+    return Objects.equals(tableCatalog, that.tableCatalog)
+        && Objects.equals(tableSchema, that.tableSchema)
+        && Objects.equals(tableName, that.tableName) && Objects.equals(nonUnique, that.nonUnique)
+        && Objects.equals(indexQualifier, that.indexQualifier)
+        && Objects.equals(indexName, that.indexName) && Objects.equals(type, that.type)
+        && Objects.equals(columns, that.columns);
+  }
+
+  @Override
   public int hashCode() {
-    int result = tableCatalog != null ? tableCatalog.hashCode() : 0;
-    result = 31 * result + (tableSchema != null ? tableSchema.hashCode() : 0);
-    result = 31 * result + tableName.hashCode();
-    result = 31 * result + nonUnique.hashCode();
-    result = 31 * result + indexQualifier.hashCode();
-    result = 31 * result + indexName.hashCode();
-    result = 31 * result + type.hashCode();
-    result = 31 * result + columns.hashCode();
-    return result;
+    return Objects.hash(tableCatalog, tableSchema, tableName, nonUnique, indexQualifier, indexName,
+        type, columns);
   }
 }

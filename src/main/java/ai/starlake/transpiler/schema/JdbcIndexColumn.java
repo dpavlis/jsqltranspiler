@@ -34,48 +34,53 @@ public class JdbcIndexColumn implements Comparable<JdbcIndexColumn> {
     this.filterCondition = filterCondition;
   }
 
-  @Override
-  public int compareTo(JdbcIndexColumn o) {
-    return ordinalPosition.compareTo(o.ordinalPosition);
+  public Short getOrdinalPosition() {
+    return ordinalPosition;
+  }
+
+  public String getColumnName() {
+    return columnName;
+  }
+
+  public String getAscOrDesc() {
+    return ascOrDesc;
+  }
+
+  public Long getCardinality() {
+    return cardinality;
+  }
+
+  public Long getPages() {
+    return pages;
+  }
+
+  public String getFilterCondition() {
+    return filterCondition;
   }
 
   @Override
-  public boolean equals(Object o) {
-    if (this == o) {
+  public int compareTo(JdbcIndexColumn other) {
+    return ordinalPosition.compareTo(other.ordinalPosition);
+  }
+
+  @Override
+  public boolean equals(Object other) {
+    if (this == other) {
       return true;
     }
-    if (!(o instanceof JdbcIndexColumn)) {
+    if (!(other instanceof JdbcIndexColumn)) {
       return false;
     }
-
-    JdbcIndexColumn that = (JdbcIndexColumn) o;
-
-    if (!ordinalPosition.equals(that.ordinalPosition)) {
-      return false;
-    }
-    if (!columnName.equals(that.columnName)) {
-      return false;
-    }
-    if (!Objects.equals(ascOrDesc, that.ascOrDesc)) {
-      return false;
-    }
-    if (!Objects.equals(cardinality, that.cardinality)) {
-      return false;
-    }
-    if (!Objects.equals(pages, that.pages)) {
-      return false;
-    }
-    return Objects.equals(filterCondition, that.filterCondition);
+    JdbcIndexColumn that = (JdbcIndexColumn) other;
+    return Objects.equals(ordinalPosition, that.ordinalPosition)
+        && Objects.equals(columnName, that.columnName) && Objects.equals(ascOrDesc, that.ascOrDesc)
+        && Objects.equals(cardinality, that.cardinality) && Objects.equals(pages, that.pages)
+        && Objects.equals(filterCondition, that.filterCondition);
   }
 
   @Override
   public int hashCode() {
-    int result = ordinalPosition.hashCode();
-    result = 31 * result + columnName.hashCode();
-    result = 31 * result + (ascOrDesc != null ? ascOrDesc.hashCode() : 0);
-    result = 31 * result + (cardinality != null ? cardinality.hashCode() : 0);
-    result = 31 * result + (pages != null ? pages.hashCode() : 0);
-    result = 31 * result + (filterCondition != null ? filterCondition.hashCode() : 0);
-    return result;
+    return Objects.hash(ordinalPosition, columnName, ascOrDesc, cardinality, pages,
+        filterCondition);
   }
 }

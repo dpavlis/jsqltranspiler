@@ -1,0 +1,8 @@
+# Copy to live-databases.properties (ignored by Git) and fill in local values.
+# Alternatively pass -PliveDatabasesFile=/absolute/path/to/private.properties.
+oracle.url=
+oracle.user=
+oracle.password=
+mssql.url=
+mssql.user=
+mssql.password=

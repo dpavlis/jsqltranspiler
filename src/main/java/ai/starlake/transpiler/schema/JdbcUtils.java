@@ -58,7 +58,7 @@ public class JdbcUtils {
     } catch (SQLException ex) {
       try {
         conn.rollback(savepoint);
-        conn.releaseSavepoint(savepoint);
+        releaseProbeSavepoint(conn, savepoint);
       } catch (SQLException recovery) {
         recovery.addSuppressed(ex);
         throw new MetadataRecoveryException(recovery);
@@ -66,11 +66,25 @@ public class JdbcUtils {
       throw ex;
     }
     try {
-      conn.releaseSavepoint(savepoint);
+      releaseProbeSavepoint(conn, savepoint);
     } catch (SQLException ex) {
       throw new MetadataRecoveryException(ex);
     }
     return result;
+  }
+
+  private static void releaseProbeSavepoint(Connection conn, Savepoint savepoint)
+      throws SQLException {
+    DatabaseSpecific type = DatabaseSpecific.getType(conn.getMetaData().getDatabaseProductName());
+    // Oracle and SQL Server support rollback to savepoints but cannot release them.
+    // They are discarded when the caller ends the transaction.
+    if (type != DatabaseSpecific.ORACLE && type != DatabaseSpecific.MSSQL) {
+      try {
+        conn.releaseSavepoint(savepoint);
+      } catch (SQLFeatureNotSupportedException unsupported) {
+        // JDBC distinguishes unsupported release from a failed transaction operation.
+      }
+    }
   }
 
   static String metadataCatalog(DatabaseMetaData metaData, String requestedCatalog)
@@ -113,6 +127,10 @@ public class JdbcUtils {
   /**
    * Used for detecting RDBMS type and DB specific handling
    */
+
+  public enum KeyStrategy {
+    INFORMATION_SCHEMA, ORACLE, JDBC
+  }
 
   public enum DatabaseSpecific {
     // --
@@ -170,6 +188,22 @@ public class JdbcUtils {
         "SELECT current_catalog(), current_schema()"),
     // --
     OTHER("OTHER", null, null, "SELECT current_database(), current_schema()");
+
+    public KeyStrategy getKeyStrategy() {
+      switch (this) {
+        case POSTGRESQL:
+        case MYSQL:
+        case MSSQL:
+        case SNOWFLAKE:
+        case H2:
+        case DUCKDB:
+          return KeyStrategy.INFORMATION_SCHEMA;
+        case ORACLE:
+          return KeyStrategy.ORACLE;
+        default:
+          return KeyStrategy.JDBC;
+      }
+    }
 
     String identString;
     private final String[] productAliases;
