@@ -241,9 +241,9 @@ public class JdbcColumn implements Comparable<JdbcColumn> {
 
       b.append(" : ").append(typeName);
 
-      if (columnSize > 0) {
+      if (columnSize != null && columnSize > 0) {
         b.append("(").append(columnSize);
-        if (decimalDigits > 0) {
+        if (decimalDigits != null && decimalDigits > 0) {
           b.append(", ").append(decimalDigits);
         }
         b.append(")");
@@ -263,11 +263,11 @@ public class JdbcColumn implements Comparable<JdbcColumn> {
   public int hashCode() {
     int result = tableCatalog != null ? tableCatalog.hashCode() : 0;
     result = 31 * result + (tableSchema != null ? tableSchema.hashCode() : 0);
-    result = 31 * result + tableName.hashCode();
-    result = 31 * result + columnName.hashCode();
-    result = 31 * result + dataType.hashCode();
+    result = 31 * result + (tableName != null ? tableName.hashCode() : 0);
+    result = 31 * result + (columnName != null ? columnName.hashCode() : 0);
+    result = 31 * result + (dataType != null ? dataType.hashCode() : 0);
     result = 31 * result + (typeName != null ? typeName.hashCode() : 0);
-    result = 31 * result + columnSize.hashCode();
+    result = 31 * result + (columnSize != null ? columnSize.hashCode() : 0);
     result = 31 * result + (decimalDigits != null ? decimalDigits.hashCode() : 0);
     result = 31 * result + (numericPrecisionRadix != null ? numericPrecisionRadix.hashCode() : 0);
     result = 31 * result + (nullable != null ? nullable.hashCode() : 0);

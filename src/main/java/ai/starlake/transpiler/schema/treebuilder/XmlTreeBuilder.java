@@ -77,21 +77,24 @@ public class XmlTreeBuilder extends TreeBuilder<String> {
         .append("='").append(escapeAttribute(value)).append("'"));
 
     if (column.getExpression() instanceof Column) {
-      xmlBuilder.append(" table='").append(JSQLColumResolver
-          .getQualifiedTableName(column.tableCatalog, column.tableSchema, column.tableName))
+      xmlBuilder
+          .append(" table='").append(escapeAttribute(JSQLColumResolver
+              .getQualifiedTableName(column.tableCatalog, column.tableSchema, column.tableName)))
           .append("'");
       if (column.scopeTable != null && !column.scopeTable.isEmpty()) {
         xmlBuilder.append(" scope='")
-            .append(JSQLColumResolver.getQualifiedColumnName(column.scopeCatalog,
-                column.scopeSchema, column.scopeTable, column.scopeColumn))
+            .append(escapeAttribute(JSQLColumResolver.getQualifiedColumnName(column.scopeCatalog,
+                column.scopeSchema, column.scopeTable, column.scopeColumn)))
             .append("'");
       }
       xmlBuilder.append(" dataType='java.sql.Types.")
-          .append(JdbcMetaData.getTypeName(column.dataType)).append("'");
-      xmlBuilder.append(" typeName='").append(column.typeName).append("'");
-      xmlBuilder.append(" columnSize='").append(column.columnSize).append("'");
-      xmlBuilder.append(" decimalDigits='").append(column.decimalDigits).append("'");
-      xmlBuilder.append(" nullable='").append(column.isNullable).append("'");
+          .append(column.dataType == null ? "UNKNOWN" : JdbcMetaData.getTypeName(column.dataType))
+          .append("'");
+      xmlBuilder.append(" typeName='").append(escapeAttribute(column.typeName)).append("'");
+      xmlBuilder.append(" columnSize='").append(escapeAttribute(column.columnSize)).append("'");
+      xmlBuilder.append(" decimalDigits='").append(escapeAttribute(column.decimalDigits))
+          .append("'");
+      xmlBuilder.append(" nullable='").append(escapeAttribute(column.isNullable)).append("'");
     }
 
     Expression expression = column.getExpression();

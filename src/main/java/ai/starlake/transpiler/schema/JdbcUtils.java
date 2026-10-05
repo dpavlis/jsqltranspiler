@@ -55,7 +55,9 @@ public class JdbcUtils {
     T result;
     try {
       result = query.get();
-    } catch (SQLException ex) {
+    } catch (SQLException | RuntimeException ex) {
+      // Undo the probe on any failure, so an unexpected runtime error cannot leave the
+      // savepoint and partial probe work inside the caller's transaction.
       try {
         conn.rollback(savepoint);
         releaseProbeSavepoint(conn, savepoint);
@@ -141,7 +143,8 @@ public class JdbcUtils {
       }
       String schema = metaData.getConnection().getSchema();
       return schema == null ? "" : schema;
-    } catch (SQLFeatureNotSupportedException ex) {
+    } catch (SQLFeatureNotSupportedException | AbstractMethodError ex) {
+      // AbstractMethodError: pre-JDBC 4.1 drivers do not implement Connection.getSchema().
       return "";
     }
   }

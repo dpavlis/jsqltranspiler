@@ -476,7 +476,7 @@ public final class JdbcMetaData implements DatabaseMetaData {
       try {
         String catalog = conn.getCatalog();
         currentCatalogName = catalog == null ? "" : catalog;
-      } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
+      } catch (java.sql.SQLFeatureNotSupportedException | AbstractMethodError unsupported) {
         // Driver does not expose the current catalog.
       } catch (SQLException failure) {
         getterFailure = failure;
@@ -484,8 +484,9 @@ public final class JdbcMetaData implements DatabaseMetaData {
       try {
         String schema = conn.getSchema();
         currentSchemaName = schema == null ? "" : schema;
-      } catch (java.sql.SQLFeatureNotSupportedException unsupported) {
-        // Driver does not expose the current schema.
+      } catch (java.sql.SQLFeatureNotSupportedException | AbstractMethodError unsupported) {
+        // Driver does not expose the current schema (getSchema() is JDBC 4.1, absent in older
+        // drivers).
       } catch (SQLException failure) {
         if (getterFailure == null) {
           getterFailure = failure;
@@ -539,7 +540,11 @@ public final class JdbcMetaData implements DatabaseMetaData {
     }
 
     // Catalog-less filters default to the connection's catalog. An empty filter still scans all.
-    if (!extractionOptions.allCatalogs
+    // Schema-less drivers (e.g. MySQL in catalog mode) expose databases as catalogs, so a bare
+    // filter already names the catalog and must not be pinned to the current one.
+    boolean schemaLess = !metaData.supportsSchemasInTableDefinitions()
+        && !metaData.supportsSchemasInDataManipulation();
+    if (!extractionOptions.allCatalogs && !schemaLess
         && patterns.stream().anyMatch(pattern -> pattern[0] == null)) {
       String filterCatalog = JdbcUtils.metadataCatalog(metaData, null);
       if (!filterCatalog.isEmpty()) {
@@ -756,7 +761,14 @@ public final class JdbcMetaData implements DatabaseMetaData {
   private String[] readCurrentContext(Connection conn) throws SQLException {
     if (databaseType.getCurrentSchemaQuery() == null) {
       String catalog = conn.getCatalog();
-      String schema = conn.getSchema();
+      String schema;
+      try {
+        schema = conn.getSchema();
+      } catch (AbstractMethodError legacyDriver) {
+        // Pre-JDBC 4.1 driver: let the caller's getter fallback treat it as unsupported.
+        throw new java.sql.SQLFeatureNotSupportedException("Connection.getSchema() unavailable",
+            legacyDriver);
+      }
       return new String[] {catalog == null ? "" : catalog, schema == null ? "" : schema};
     }
     try (Statement statement = conn.createStatement();
@@ -986,6 +998,18 @@ public final class JdbcMetaData implements DatabaseMetaData {
     }
   }
 
+  /**
+   * An empty schema means the current schema, unless the catalog has no such schema but an empty
+   * one (a catalog-only table such as MySQL's {@code db.table}).
+   */
+  private JdbcSchema lookupSchema(JdbcCatalog jdbcCatalog, String schemaName) {
+    if (schemaName != null && !schemaName.isEmpty()) {
+      return jdbcCatalog.get(schemaName);
+    }
+    JdbcSchema current = jdbcCatalog.get(currentSchemaName);
+    return current != null ? current : jdbcCatalog.get("");
+  }
+
   // @todo: implement a GLOB based column name filter
   @SuppressWarnings({"PMD.CyclomaticComplexity"})
   public List<JdbcColumn> getTableColumns(String catalogName, String schemaName, String tableName,
@@ -1000,8 +1024,7 @@ public final class JdbcMetaData implements DatabaseMetaData {
           "Catalog " + catalogName + " does not exist in the DatabaseMetaData.");
     }
 
-    JdbcSchema jdbcSchema = jdbcCatalog
-        .get(schemaName == null || schemaName.isEmpty() ? currentSchemaName : schemaName);
+    JdbcSchema jdbcSchema = lookupSchema(jdbcCatalog, schemaName);
     if (jdbcSchema == null) {
       LOGGER.info("Available schema: "
           + Arrays.deepToString(jdbcCatalog.schemas.keySet().toArray(new String[0])));
@@ -1086,9 +1109,7 @@ public final class JdbcMetaData implements DatabaseMetaData {
       }
     }
 
-    JdbcSchema jdbcSchema =
-        jdbcCatalog.get(schemaName == null || schemaName.isEmpty() ? currentSchemaName
-            : schemaName.replaceAll("^\"|\"$", ""));
+    JdbcSchema jdbcSchema = lookupSchema(jdbcCatalog, schemaName);
     if (jdbcSchema == null) {
       switch (errorMode) {
         case STRICT:
@@ -2419,16 +2440,30 @@ public final class JdbcMetaData implements DatabaseMetaData {
     this.currentSchemaName = currentSchemaName;
   }
 
-  /** Resolve a SQL two-part catalog.table name into JDBC's catalog and empty schema. */
-  public void resolveTableScope(Table table) {
+  /**
+   * Resolve a SQL two-part catalog.table name into JDBC's catalog and empty schema.
+   *
+   * @return true if the table was rebased onto a catalog with an empty schema; callers must then
+   *         keep the empty schema instead of defaulting it to the current schema
+   */
+  public boolean resolveTableScope(Table table) {
     String catalogName = table.getUnquotedDatabaseName();
     String qualifier = table.getUnquotedSchemaName();
-    if (catalogName != null && !catalogName.isEmpty() || qualifier == null || qualifier.isEmpty()) {
-      return;
+    if (catalogName != null && !catalogName.isEmpty()) {
+      if (qualifier != null && !qualifier.isEmpty()) {
+        return false;
+      }
+      // Already catalog-scoped (e.g. rebased earlier): keep the empty schema when the catalog
+      // holds one and has no schema named like the current one to default to.
+      JdbcCatalog scoped = catalogs.get(catalogName);
+      return scoped != null && scoped.get("") != null && scoped.get(currentSchemaName) == null;
+    }
+    if (qualifier == null || qualifier.isEmpty()) {
+      return false;
     }
     JdbcCatalog current = catalogs.get(currentCatalogName);
     if (current != null && current.get(qualifier) != null) {
-      return;
+      return false;
     }
     boolean catalogOnly = databaseType.isMySqlFamily() && currentSchemaName.isEmpty()
         && current != null && current.get("") != null && current.schemas.values().stream()
@@ -2440,7 +2475,9 @@ public final class JdbcMetaData implements DatabaseMetaData {
     if (catalogOnly || (current == null || current.get(qualifier) == null) && emptySchemaCatalog) {
       table.setDatabaseName(table.getSchemaName());
       table.setSchemaName("");
+      return true;
     }
+    return false;
   }
 
   public boolean hasTable(String catalogName, String schemaName, String tableName) {

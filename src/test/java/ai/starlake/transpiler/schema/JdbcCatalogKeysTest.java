@@ -353,6 +353,36 @@ class JdbcCatalogKeysTest {
   }
 
   @Test
+  void columnsWithoutReportedSizeSupportKeysAndJsonRoundTrip() throws Exception {
+    try (Connection duck = DriverManager.getConnection("jdbc:duckdb:")) {
+      try (Statement st = duck.createStatement()) {
+        // DuckDB reports NULL sizes for these types; keyed table maps hash every column.
+        st.execute("CREATE TABLE main.t(id INT PRIMARY KEY, d DATE, b BOOLEAN, ts TIMESTAMP)");
+        st.execute("CREATE TABLE main.child(id INT PRIMARY KEY, t_id INT REFERENCES main.t(id))");
+      }
+      String catalog = duck.getCatalog();
+      JdbcMetaData md =
+          new JdbcMetaData(duck, List.of(catalog + ".main"), JdbcMetaDataOptions.defaults());
+      JdbcTable t = md.get(catalog).get("main").get("t");
+      assertEquals(List.of("id"), t.primaryKey.getColumnNames());
+      JdbcColumn d = t.columns.get("d");
+      assertNull(d.columnSize);
+      assertNotNull(d.toString());
+      assertEquals(1, md.get(catalog).get("main").get("child").foreignKeys.size());
+
+      JdbcMetaData restored =
+          JdbcJSONSerializer.fromJson(new StringReader(JdbcJSONSerializer.toJson(md).toString()));
+      JdbcTable copy = restored.get(catalog).get("main").get("t");
+      assertNull(copy.columns.get("d").columnSize);
+      assertEquals(copy.hashCode(), copy.hashCode());
+      assertEquals(t.primaryKey, copy.primaryKey);
+    }
+    JdbcColumn bare = new JdbcColumn(null, null, null, null, null, null, null, null);
+    assertEquals(bare.hashCode(), bare.hashCode());
+    assertNotNull(bare.toString());
+  }
+
+  @Test
   void duckDbKeysAndCommentsStayInSelectedCatalogWithCollidingTableNames() throws Exception {
     try (Connection duck = DriverManager.getConnection("jdbc:duckdb:")) {
       try (Statement st = duck.createStatement()) {

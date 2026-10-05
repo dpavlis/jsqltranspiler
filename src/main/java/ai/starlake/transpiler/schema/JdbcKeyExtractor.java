@@ -101,11 +101,21 @@ final class JdbcKeyExtractor {
           }
         }
         if (options.comments || options.columnDetails) {
-          JdbcMetaDataProgress.Phase phase = options.comments ? JdbcMetaDataProgress.Phase.COMMENTS
-              : JdbcMetaDataProgress.Phase.COLUMN_DETAILS;
-          report(options, phase, schema, null, 0, total);
+          // Comments and column details share one schema-wide read; report each enabled phase.
+          List<JdbcMetaDataProgress.Phase> phases = new ArrayList<>();
+          if (options.comments) {
+            phases.add(JdbcMetaDataProgress.Phase.COMMENTS);
+          }
+          if (options.columnDetails) {
+            phases.add(JdbcMetaDataProgress.Phase.COLUMN_DETAILS);
+          }
+          for (JdbcMetaDataProgress.Phase phase : phases) {
+            report(options, phase, schema, null, 0, total);
+          }
           enrichDetails(conn, type, schema, options);
-          report(options, phase, schema, null, total, total);
+          for (JdbcMetaDataProgress.Phase phase : phases) {
+            report(options, phase, schema, null, total, total);
+          }
         }
         if (options.indices) {
           report(options, JdbcMetaDataProgress.Phase.INDICES, schema, null, 0, total);
@@ -238,7 +248,17 @@ final class JdbcKeyExtractor {
     }
     return probe(conn, () -> {
       String query;
-      if (type.getKeyStrategy() == JdbcUtils.KeyStrategy.ORACLE) {
+      if (type == JdbcUtils.DatabaseSpecific.POSTGRESQL) {
+        // information_schema.table_constraints hides tables on which the user only holds
+        // SELECT; pg_catalog lists every constraint the user can see, as the JDBC driver does.
+        query = "SELECT c.relname AS TABLE_NAME, con.conname AS PK_NAME, "
+            + "a.attname AS COLUMN_NAME, k.ord AS KEY_SEQ FROM pg_catalog.pg_constraint con "
+            + "JOIN pg_catalog.pg_class c ON c.oid=con.conrelid "
+            + "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+            + "CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord) "
+            + "JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum=k.attnum "
+            + "WHERE con.contype='p' AND n.nspname=? ORDER BY c.relname, k.ord";
+      } else if (type.getKeyStrategy() == JdbcUtils.KeyStrategy.ORACLE) {
         query = "SELECT c.TABLE_NAME, c.CONSTRAINT_NAME AS PK_NAME, k.COLUMN_NAME, "
             + "k.POSITION AS KEY_SEQ FROM ALL_CONSTRAINTS c JOIN ALL_CONS_COLUMNS k "
             + "ON c.OWNER=k.OWNER AND c.CONSTRAINT_NAME=k.CONSTRAINT_NAME "
@@ -256,7 +276,7 @@ final class JdbcKeyExtractor {
       }
       try (PreparedStatement st = conn.prepareStatement(query)) {
         st.setString(1, schemaName(type, schema));
-        if (catalogFilter(type, schema)) {
+        if (type != JdbcUtils.DatabaseSpecific.POSTGRESQL && catalogFilter(type, schema)) {
           st.setString(2, schema.tableCatalog);
         }
         try (ResultSet rs = st.executeQuery()) {

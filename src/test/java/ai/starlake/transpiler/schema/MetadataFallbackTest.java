@@ -537,6 +537,131 @@ class MetadataFallbackTest {
     }
   }
 
+  @Test
+  void runtimeFailureInProbeRollsBackAndReleasesSavepoint() throws SQLException {
+    try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+      conn.createStatement().execute("CREATE TABLE T(ID INT)");
+      conn.setAutoCommit(false);
+      conn.createStatement().execute("INSERT INTO T VALUES (1)");
+      List<String> calls = new ArrayList<>();
+      Connection tracked = proxy(Connection.class, conn, (method, args) -> {
+        if (method.equals("rollback") || method.equals("releaseSavepoint")) {
+          calls.add(method);
+        }
+        return UNHANDLED;
+      });
+      IllegalStateException failure = new IllegalStateException("Probe bug");
+      assertSame(failure,
+          assertThrows(IllegalStateException.class, () -> JdbcUtils.metadataProbe(tracked, () -> {
+            conn.createStatement().execute("INSERT INTO T VALUES (2)");
+            throw failure;
+          })));
+      assertEquals(List.of("rollback", "releaseSavepoint"), calls);
+      try (ResultSet rows = conn.createStatement().executeQuery("SELECT ID FROM T ORDER BY ID")) {
+        assertTrue(rows.next(), "Caller work must survive the failed probe");
+        assertEquals(1, rows.getInt(1));
+        assertFalse(rows.next(), "Partial probe work must be rolled back");
+      }
+      conn.rollback();
+    }
+  }
+
+  @Test
+  void legacyDriverWithoutGetSchemaFallsBackToEmptySchema() throws Exception {
+    try (Connection conn = DriverManager.getConnection("jdbc:h2:mem:")) {
+      Connection legacy = failingContext(conn, null, null);
+      Connection[] wrapped = new Connection[1];
+      DatabaseMetaData md = proxy(DatabaseMetaData.class, legacy.getMetaData(),
+          (method, args) -> method.equals("getConnection") ? wrapped[0] : UNHANDLED);
+      wrapped[0] = proxy(Connection.class, legacy, (method, args) -> {
+        if (method.equals("getMetaData")) {
+          return md;
+        }
+        if (method.equals("getSchema")) {
+          // What a pre-JDBC 4.1 driver raises for the unimplemented interface method.
+          throw new AbstractMethodError("getSchema");
+        }
+        return UNHANDLED;
+      });
+      JdbcMetaData metadata = new JdbcMetaData(wrapped[0]);
+      assertEquals(conn.getCatalog(), metadata.getCurrentCatalogName());
+      assertEquals("", metadata.getCurrentSchemaName());
+      assertEquals("", JdbcUtils.metadataSchema(md, null, false));
+    }
+  }
+
+  @Test
+  void schemaLessMysqlBareFilterSelectsOtherCatalogs() throws Exception {
+    try (Connection conn = DriverManager.getConnection("jdbc:duckdb:")) {
+      try (Statement st = conn.createStatement()) {
+        st.execute("CREATE TABLE T(A INT)");
+        st.execute("ATTACH ':memory:' AS sales");
+        st.execute("CREATE TABLE sales.main.ORDERS(ID INT)");
+        st.execute("ATTACH ':memory:' AS stage");
+        st.execute("CREATE TABLE stage.main.IMPORTS(ID INT)");
+      }
+      String current = conn.getCatalog();
+      Connection[] wrapped = new Connection[1];
+      DatabaseMetaData delegate = conn.getMetaData();
+      DatabaseMetaData md = proxy(DatabaseMetaData.class, delegate, (method, args) -> {
+        if (method.equals("getDatabaseProductName")) {
+          return "MySQL";
+        }
+        if (method.equals("getConnection")) {
+          return wrapped[0];
+        }
+        if (method.startsWith("supportsSchemas")) {
+          return false;
+        }
+        if (method.equals("getSchemas")) {
+          // Connector/J in catalog mode reports no schemas.
+          return delegate.getSchemas(null, "no_such_schema");
+        }
+        if (method.equals("getTables") || method.equals("getColumns")) {
+          ResultSet rows =
+              method.equals("getTables") ? delegate.getTables((String) args[0], "main", "%", null)
+                  : delegate.getColumns((String) args[0], "main", "%", "%");
+          return proxy(ResultSet.class, rows, (name, parameters) -> {
+            if (name.equals("getString") && "TABLE_SCHEM".equals(parameters[0])) {
+              return null;
+            }
+            return UNHANDLED;
+          });
+        }
+        return UNHANDLED;
+      });
+      wrapped[0] = proxy(Connection.class, conn, (method, args) -> {
+        if (method.equals("getMetaData")) {
+          return md;
+        }
+        if (method.equals("createStatement")) {
+          Statement st = conn.createStatement();
+          return proxy(Statement.class, st, (name, parameters) -> {
+            if (name.equals("executeQuery")
+                && DatabaseSpecific.MYSQL.getCurrentSchemaQuery().equals(parameters[0])) {
+              return st.executeQuery("SELECT current_database(), current_database()");
+            }
+            return UNHANDLED;
+          });
+        }
+        return UNHANDLED;
+      });
+      for (String filter : List.of("sales", "SALES", "sal%")) {
+        JdbcMetaData metadata = new JdbcMetaData(wrapped[0], List.of(filter));
+        assertEquals(current, metadata.getCurrentCatalogName());
+        assertNotNull(metadata.get("sales"), filter);
+        assertNotNull(metadata.get("sales").get("").get("ORDERS"), filter);
+        assertTrue(metadata.getCatalogsList().stream()
+            .filter(catalog -> !catalog.tableCatalog.equalsIgnoreCase("sales"))
+            .flatMap(catalog -> catalog.schemas.values().stream())
+            .allMatch(schema -> schema.tables.isEmpty()), filter);
+      }
+      JdbcMetaData both = new JdbcMetaData(wrapped[0], List.of("sales", "stage"));
+      assertNotNull(both.get("stage").get("").get("IMPORTS"));
+      assertNotNull(both.get("sales").get("").get("ORDERS"));
+    }
+  }
+
   private Connection failingContext(Connection conn, SQLException catalogFailure,
       SQLException schemaFailure) throws SQLException {
     Connection[] profile = new Connection[1];

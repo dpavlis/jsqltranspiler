@@ -202,6 +202,9 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       for (int index = 0; index < function.getParameters().size(); index++) {
         Expression expression = function.getParameters().get(index);
         List<JdbcColumn> subColumns = expression.accept(this, context);
+        if (subColumns == null) {
+          continue;
+        }
         boolean condition = "nullif".equalsIgnoreCase(function.getName()) && index == 1
             || ("if".equalsIgnoreCase(function.getName())
                 || "iif".equalsIgnoreCase(function.getName())) && index == 0;
@@ -217,8 +220,11 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
   private <S> void addRole(JdbcColumn parent, Expression expression, S context, String role) {
     if (expression != null) {
       List<JdbcColumn> children = expression.accept(this, context);
-      children.forEach(child -> child.setRole(role));
-      parent.add(children);
+      // Some visitors (e.g. STRUCT literals) contribute no columns and return null.
+      if (children != null) {
+        children.forEach(child -> child.setRole(role));
+        parent.add(children);
+      }
     }
   }
 
@@ -314,7 +320,8 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       List<ColumnsTransformer> transformers = allTableColumns.getTransformers();
       if (transformers != null) {
         for (ColumnsTransformer transformer : transformers) {
-          if (transformer.getType() == ColumnsTransformerType.EXCEPT
+          if ((transformer.getType() == ColumnsTransformerType.EXCEPT
+              || transformer.getType() == ColumnsTransformerType.EXCLUDE)
               && transformer.getExceptColumns() != null) {
             for (Column c : transformer.getExceptColumns()) {
               JdbcColumn jdbcColumn =
@@ -419,7 +426,8 @@ public class JSQLExpressionColumnResolver extends ExpressionVisitorAdapter<List<
       List<ColumnsTransformer> transformers = allColumns.getTransformers();
       if (transformers != null) {
         for (ColumnsTransformer transformer : transformers) {
-          if (transformer.getType() == ColumnsTransformerType.EXCEPT
+          if ((transformer.getType() == ColumnsTransformerType.EXCEPT
+              || transformer.getType() == ColumnsTransformerType.EXCLUDE)
               && transformer.getExceptColumns() != null) {
             for (Column c : transformer.getExceptColumns()) {
               if (c.getTable() != null) {

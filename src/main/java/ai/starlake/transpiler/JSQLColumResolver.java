@@ -383,8 +383,8 @@ public class JSQLColumResolver
   public <S> JdbcResultSetMetaData visit(Table table, S context) {
     JdbcResultSetMetaData rsMetaData = new JdbcResultSetMetaData();
     JdbcMetaData metaData = (JdbcMetaData) context;
-    metaData.resolveTableScope(table);
-    if (table.getSchemaName() == null || table.getSchemaName().isEmpty()) {
+    boolean catalogOnly = metaData.resolveTableScope(table);
+    if (!catalogOnly && (table.getSchemaName() == null || table.getSchemaName().isEmpty())) {
       table.setSchemaName(metaData.getCurrentSchemaName());
     }
 
@@ -506,8 +506,8 @@ public class JSQLColumResolver
     }
 
     for (Table t : metaData.getFromTables().values()) {
-      metaData.resolveTableScope(t);
-      if (t.getSchemaName() == null || t.getSchemaName().isEmpty()) {
+      boolean catalogOnly = metaData.resolveTableScope(t);
+      if (!catalogOnly && (t.getSchemaName() == null || t.getSchemaName().isEmpty())) {
         t.setSchemaName(metaData.getCurrentSchemaName());
       }
 
@@ -520,8 +520,8 @@ public class JSQLColumResolver
     }
 
     for (Table t : metaData.getNaturalJoinedTables().values()) {
-      metaData.resolveTableScope(t);
-      if (t.getSchemaName() == null || t.getSchemaName().isEmpty()) {
+      boolean catalogOnly = metaData.resolveTableScope(t);
+      if (!catalogOnly && (t.getSchemaName() == null || t.getSchemaName().isEmpty())) {
         t.setSchemaName(metaData.getCurrentSchemaName());
       }
 

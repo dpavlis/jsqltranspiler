@@ -126,6 +126,53 @@ class PostgreSqlMetaDataTest {
     }
   }
 
+  @Test
+  void selectOnlyRoleStillReadsPrimaryKeysInBulk() throws Exception {
+    try (Connection conn = LiveDatabaseProperties.connect("postgresql")) {
+      conn.setAutoCommit(false);
+      String suffix = java.util.UUID.randomUUID().toString().replace("-", "");
+      String schema = "transpiler_ro_" + suffix;
+      String role = "transpiler_ro_" + suffix;
+      try (Statement st = conn.createStatement()) {
+        try (ResultSet rs = st.executeQuery(
+            "SELECT rolcreaterole OR rolsuper FROM pg_roles WHERE rolname = current_user")) {
+          org.junit.jupiter.api.Assumptions.assumeTrue(rs.next() && rs.getBoolean(1),
+              "Live PostgreSQL user cannot create roles");
+        }
+        // Everything below, including the role, disappears with the final rollback.
+        st.execute("CREATE SCHEMA " + schema);
+        st.execute("CREATE TABLE " + schema + ".parent(id INT PRIMARY KEY, code INT UNIQUE)");
+        st.execute("CREATE TABLE " + schema + ".child(id INT, k INT, PRIMARY KEY(k, id))");
+        st.execute("CREATE ROLE " + role + " NOLOGIN");
+        st.execute("GRANT USAGE ON SCHEMA " + schema + " TO " + role);
+        st.execute("GRANT SELECT ON ALL TABLES IN SCHEMA " + schema + " TO " + role);
+        // Non-superusers with CREATEROLE must be a member to switch (PostgreSQL 16+ only
+        // self-grants ADMIN, without SET).
+        st.execute("GRANT " + role + " TO CURRENT_USER");
+        st.execute("SET LOCAL ROLE " + role);
+        // information_schema.table_constraints hides constraints from SELECT-only users.
+        try (ResultSet rs = st.executeQuery(
+            "SELECT count(*) FROM information_schema.table_constraints WHERE table_schema = '"
+                + schema + "'")) {
+          assertTrue(rs.next());
+          assertEquals(0, rs.getInt(1), "Precondition: constraints hidden from the role");
+        }
+        AtomicInteger queries = new AtomicInteger();
+        AtomicInteger failures = new AtomicInteger();
+        AtomicInteger fkCalls = new AtomicInteger();
+        JdbcMetaData metadata =
+            new JdbcMetaData(countMetadataQueries(conn, queries, failures, fkCalls),
+                List.of(schema), JdbcMetaDataOptions.defaults());
+        JdbcSchema scanned = metadata.get(conn.getCatalog()).get(schema);
+        assertEquals(List.of("id"), scanned.get("parent").primaryKey.getColumnNames());
+        assertEquals(List.of("k", "id"), scanned.get("child").primaryKey.getColumnNames());
+        assertEquals(0, failures.get(), "No failing SQL probe is allowed on PostgreSQL");
+      } finally {
+        conn.rollback();
+      }
+    }
+  }
+
   private Object invokeJdbc(Object target, Method method, Object[] args) throws Throwable {
     try {
       return method.invoke(target, args);

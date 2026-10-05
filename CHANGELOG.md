@@ -4,13 +4,32 @@ Changelog of jsqltranspiler
 
 ## Unreleased
 
+### Fixed
+
+* Columns without a reported size (e.g. DuckDB DATE/BOOLEAN/TIMESTAMP, Snowflake VARIANT, or
+  JSON without `size`) no longer fail key extraction with a `NullPointerException`.
+* PostgreSQL reads primary keys in bulk from `pg_catalog`, so users holding only `SELECT`
+  privileges no longer get tables without primary keys.
+* Schema-less drivers (MySQL/MariaDB in catalog mode) match catalog-less filters against every
+  database instead of only the connection's current one.
+* Drivers without JDBC 4.1 `Connection.getSchema()` fall back to an empty current schema.
+* A runtime failure inside a speculative metadata probe rolls back and releases its savepoint.
+* Progress reports both `COMMENTS` and `COLUMN_DETAILS` when both are enabled (the defaults).
+* `* EXCLUDE (...)` and `t.* EXCLUDE (...)` remove the listed columns from lineage again.
+* Catalog-only tables (`db.table` resolving to a catalog with an empty schema) are no longer
+  re-scoped to the current schema, which failed in STRICT mode.
+* Expressions contributing no columns (e.g. `STRUCT(...)`) inside `CASE`, `IF` and `NULLIF`
+  no longer throw a `NullPointerException`.
+* Pipe `SET` followed by `DROP` transpiles to `EXCLUDE` before `REPLACE`, as DuckDB requires.
+* XML lineage escapes the `table`, `scope`, `typeName` and remaining column attributes.
+
 ### Changed
 
 * Snowflake DATE columns use precision 10 when JDBC column metadata reports zero or null,
   matching query result metadata and retaining that value through catalog JSON round trips.
 
-* Schema filters without a catalog now select the connection's current catalog when available.
-  Set `JdbcMetaDataOptions.setAllCatalogs(true)` to retain matching across all visible catalogs.
+* Schema filters without a catalog now select the connection's current catalog when available
+  (schema-less drivers, where catalogs are databases, match the filter against catalogs). Set `JdbcMetaDataOptions.setAllCatalogs(true)` to retain matching across all visible catalogs.
   Empty filter collections still perform unrestricted extraction. Catalog qualifiers are exact
   names, including literal `_` and `%` characters.
 * Snowflake reads keys with two schema-wide `SHOW` queries, falling back to schema-wide JDBC

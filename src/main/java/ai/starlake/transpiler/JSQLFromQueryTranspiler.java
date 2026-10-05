@@ -247,8 +247,17 @@ public class JSQLFromQueryTranspiler implements FromQueryVisitor<PlainSelect, Pl
           && plainSelect.getSelectItem(0).getExpression() instanceof AllColumns) {
         AllColumns allColumns = (AllColumns) plainSelect.getSelectItem(0).getExpression();
 
-        if ((allColumns.getTransformers() == null || getTransformer(allColumns, ColumnsTransformerType.REPLACE) == null || getTransformer(allColumns, ColumnsTransformerType.REPLACE).getReplaceItems() == null || getTransformer(allColumns, ColumnsTransformerType.REPLACE).getReplaceItems().isEmpty())
-            && (allColumns.getTransformers() == null || getTransformer(allColumns, ColumnsTransformerType.EXCEPT) == null || getTransformer(allColumns, ColumnsTransformerType.EXCEPT).getExceptColumns() == null || getTransformer(allColumns, ColumnsTransformerType.EXCEPT).getExceptColumns().isEmpty())) {
+        if ((allColumns.getTransformers() == null
+            || getTransformer(allColumns, ColumnsTransformerType.REPLACE) == null
+            || getTransformer(allColumns, ColumnsTransformerType.REPLACE).getReplaceItems() == null
+            || getTransformer(allColumns, ColumnsTransformerType.REPLACE).getReplaceItems()
+                .isEmpty())
+            && (allColumns.getTransformers() == null
+                || getTransformer(allColumns, ColumnsTransformerType.EXCEPT) == null
+                || getTransformer(allColumns, ColumnsTransformerType.EXCEPT)
+                    .getExceptColumns() == null
+                || getTransformer(allColumns, ColumnsTransformerType.EXCEPT).getExceptColumns()
+                    .isEmpty())) {
           plainSelect.setSelectItems(selectPipeOperator.getSelectItems());
         } else {
           return new PlainSelect().withFromItem(new ParenthesedSelect().withSelect(plainSelect))
@@ -346,7 +355,8 @@ public class JSQLFromQueryTranspiler implements FromQueryVisitor<PlainSelect, Pl
     ColumnsTransformer transformer = getTransformer(allColumns, ColumnsTransformerType.EXCEPT);
     if (transformer == null) {
       transformer = new ColumnsTransformer(ColumnsTransformerType.EXCEPT);
-      allColumns.addTransformer(transformer);
+      // DuckDB requires EXCLUDE before REPLACE, whatever order the pipe operators came in.
+      allColumns.getTransformers().add(0, transformer);
     }
     ParenthesedExpressionList<Column> exceptColumns = transformer.getExceptColumns();
     if (exceptColumns == null) {

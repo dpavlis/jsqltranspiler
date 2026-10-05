@@ -87,8 +87,10 @@ class JdbcMetaDataProgressTest {
           tracking.assertIdle();
           record(p, c, s, t, d, n);
         }));
+    // Defaults enable comments and column details: both phases are reported per schema.
     assertEquals(List.of(CATALOGS, SCHEMAS, TABLES, COLUMNS, PRIMARY_KEYS, FOREIGN_KEYS, COMMENTS,
-        PRIMARY_KEYS, FOREIGN_KEYS, COMMENTS), starts());
+        COLUMN_DETAILS, PRIMARY_KEYS, FOREIGN_KEYS, COMMENTS, COLUMN_DETAILS), starts());
+    assertEquals(4, phase(COLUMN_DETAILS).size());
     assertEquals(List.of(0, 1, 2),
         phase(TABLES).stream().map(Event::done).collect(Collectors.toList()));
     assertTrue(phase(TABLES).stream().allMatch(e -> e.total == 2));
