@@ -6,6 +6,13 @@ Changelog of jsqltranspiler
 
 ### Fixed
 
+* SAP HANA primary and foreign keys are read per schema from `SYS.CONSTRAINTS` and
+  `SYS.REFERENTIAL_CONSTRAINTS` (rules and deferrability included). Previously none were
+  found: HANA has no `INFORMATION_SCHEMA`, and its driver returns no keys for a null table.
+* Drivers using the generic JDBC key path that answer an empty schema-wide `getPrimaryKeys` /
+  `getImportedKeys` are checked on up to 3 tables. If one has keys, the driver ignores a null
+  table and keys are read table by table; otherwise the empty answer stands. Bulk strategies
+  (INFORMATION_SCHEMA, Oracle, Snowflake, HANA, Db2 catalog) keep their empty answers.
 * Columns without a reported size (e.g. DuckDB DATE/BOOLEAN/TIMESTAMP, Snowflake VARIANT, or
   JSON without `size`) no longer fail key extraction with a `NullPointerException`.
 * PostgreSQL reads primary keys in bulk from `pg_catalog`, so users holding only `SELECT`

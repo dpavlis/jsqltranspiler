@@ -15,6 +15,9 @@ db2.password=
 mysql.url=jdbc:mysql://<host>:<port>/<database>
 mysql.user=
 mysql.password=
+hana.url=jdbc:sap://<host>:443/?encrypt=true&validateCertificate=true
+hana.user=
+hana.password=
 
 # Read-only Snowflake sample database tests. Choose an existing warehouse for SQL probes.
 # snowflake.url=jdbc:snowflake://ORG-ACCOUNT.snowflakecomputing.com/?role=ACCOUNTADMIN&db=SNOWFLAKE_SAMPLE_DATA&schema=TPCH_SF1&warehouse=YOUR_WAREHOUSE&loginTimeout=30

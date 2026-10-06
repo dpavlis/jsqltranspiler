@@ -33,6 +33,8 @@ import java.util.logging.Logger;
  */
 final class JdbcKeyExtractor {
   private static final Logger LOGGER = Logger.getLogger(JdbcKeyExtractor.class.getName());
+  /** Tables probed before an empty schema-wide JDBC key answer is accepted. */
+  private static final int VERIFIED_TABLES = 3;
 
   private JdbcKeyExtractor() {}
 
@@ -53,51 +55,58 @@ final class JdbcKeyExtractor {
         int total = schema.tables.size();
         if (options.primaryKeys) {
           report(options, JdbcMetaDataProgress.Phase.PRIMARY_KEYS, schema, null, 0, total);
+          int[] rows = {-1};
           if (bulkPrimaryKeys(conn, type, schema) || probe(conn, () -> {
             try (ResultSet rs =
                 md.getPrimaryKeys(jdbcCatalog(type, schema), schema.tableSchema, null)) {
-              readPrimaryKeys(rs, schema, false);
+              rows[0] = readPrimaryKeys(rs, schema, false);
             }
             return null;
           })) {
-            report(options, JdbcMetaDataProgress.Phase.PRIMARY_KEYS, schema, null, total, total);
+            if (rows[0] == 0 && type.getKeyStrategy() == JdbcUtils.KeyStrategy.JDBC) {
+              perTableKeys(conn, options, JdbcMetaDataProgress.Phase.PRIMARY_KEYS, schema, true,
+                  table -> {
+                    table.getPrimaryKey(md);
+                    return table.primaryKey != null;
+                  });
+            } else {
+              report(options, JdbcMetaDataProgress.Phase.PRIMARY_KEYS, schema, null, total, total);
+            }
           } else {
             LOGGER.fine("Schema-wide primary keys unsupported; use per-table JDBC metadata");
-            int done = 0;
-            for (JdbcTable table : schema.tables.values()) {
-              optionalJdbc(conn, () -> {
-                table.getPrimaryKey(md);
-                return null;
-              });
-              report(options, JdbcMetaDataProgress.Phase.PRIMARY_KEYS, schema, table.tableName,
-                  ++done, total);
-            }
+            perTableKeys(conn, options, JdbcMetaDataProgress.Phase.PRIMARY_KEYS, schema, false,
+                table -> {
+                  table.getPrimaryKey(md);
+                  return table.primaryKey != null;
+                });
           }
         }
         if (options.foreignKeys) {
           report(options, JdbcMetaDataProgress.Phase.FOREIGN_KEYS, schema, null, 0, total);
+          TableKeyReader importedKeys = table -> {
+            try (ResultSet rs =
+                md.getImportedKeys(jdbcCatalog(type, schema), table.tableSchema, table.tableName)) {
+              return readForeignKeys(rs, schema) > 0;
+            }
+          };
+          int[] rows = {-1};
           if (bulkForeignKeys(conn, type, schema) || probe(conn, () -> {
             try (ResultSet rs =
                 md.getImportedKeys(jdbcCatalog(type, schema), schema.tableSchema, null)) {
-              readForeignKeys(rs, schema);
+              rows[0] = readForeignKeys(rs, schema);
             }
             return null;
           })) {
-            report(options, JdbcMetaDataProgress.Phase.FOREIGN_KEYS, schema, null, total, total);
+            if (rows[0] == 0 && type.getKeyStrategy() == JdbcUtils.KeyStrategy.JDBC) {
+              perTableKeys(conn, options, JdbcMetaDataProgress.Phase.FOREIGN_KEYS, schema, true,
+                  importedKeys);
+            } else {
+              report(options, JdbcMetaDataProgress.Phase.FOREIGN_KEYS, schema, null, total, total);
+            }
           } else {
             LOGGER.fine("Schema-wide imported keys unsupported; use per-table JDBC metadata");
-            int done = 0;
-            for (JdbcTable table : schema.tables.values()) {
-              optionalJdbc(conn, () -> {
-                try (ResultSet rs = md.getImportedKeys(jdbcCatalog(type, schema), table.tableSchema,
-                    table.tableName)) {
-                  readForeignKeys(rs, schema);
-                }
-                return null;
-              });
-              report(options, JdbcMetaDataProgress.Phase.FOREIGN_KEYS, schema, table.tableName,
-                  ++done, total);
-            }
+            perTableKeys(conn, options, JdbcMetaDataProgress.Phase.FOREIGN_KEYS, schema, false,
+                importedKeys);
           }
         }
         if (options.comments || options.columnDetails) {
@@ -137,6 +146,42 @@ final class JdbcKeyExtractor {
       JdbcSchema schema, String table, int done, int total) {
     if (options.progress != null) {
       options.progress.progress(phase, schema.tableCatalog, schema.tableSchema, table, done, total);
+    }
+  }
+
+  /** Reads one table's keys; returns whether the driver reported any key row for it. */
+  private interface TableKeyReader {
+    boolean read(JdbcTable table) throws SQLException;
+  }
+
+  /**
+   * Reads keys table by table. With {@code verify}, a schema-wide JDBC call returned no rows: the
+   * first tables are probed, and only if one of them has keys (the driver ignores a null table) are
+   * the remaining tables read; otherwise the empty answer stands.
+   */
+  private static void perTableKeys(Connection conn, JdbcMetaDataOptions options,
+      JdbcMetaDataProgress.Phase phase, JdbcSchema schema, boolean verify, TableKeyReader reader)
+      throws SQLException {
+    int total = schema.tables.size();
+    int done = 0;
+    boolean found = !verify;
+    for (JdbcTable table : schema.tables.values()) {
+      if (!found && done == VERIFIED_TABLES) {
+        // No probed table has keys: the empty schema-wide answer stands.
+        report(options, phase, schema, null, total, total);
+        return;
+      }
+      boolean[] rows = {false};
+      optionalJdbc(conn, () -> {
+        rows[0] = reader.read(table);
+        return null;
+      });
+      report(options, phase, schema, table.tableName, ++done, total);
+      if (!found && rows[0]) {
+        found = true;
+        LOGGER.fine("Schema-wide " + phase + " returned nothing; the driver needs a table"
+            + " - per-table JDBC metadata");
+      }
     }
   }
 
@@ -193,8 +238,10 @@ final class JdbcKeyExtractor {
         : schema.tableCatalog;
   }
 
-  private static void readPrimaryKeys(ResultSet rs, JdbcSchema schema, boolean snowflake)
+  /** @return the number of key rows that matched a table of the schema */
+  private static int readPrimaryKeys(ResultSet rs, JdbcSchema schema, boolean snowflake)
       throws SQLException {
+    int matched = 0;
     Map<JdbcTable, JdbcPrimaryKey> keys = new LinkedHashMap<>();
     Map<JdbcTable, TreeMap<Integer, String>> columns = new LinkedHashMap<>();
     while (rs.next()) {
@@ -206,6 +253,7 @@ final class JdbcKeyExtractor {
               || catalog.equalsIgnoreCase(schema.tableCatalog))
           && (ownerSchema == null || ownerSchema.isEmpty() || schema.tableSchema.isEmpty()
               || ownerSchema.equalsIgnoreCase(schema.tableSchema))) {
+        matched++;
         keys.computeIfAbsent(table, t -> new JdbcPrimaryKey(t.tableCatalog, t.tableSchema,
             t.tableName, JdbcUtils.getStringSafe(rs, snowflake ? "constraint_name" : "PK_NAME")));
         columns.computeIfAbsent(table, t -> new TreeMap<>()).put(
@@ -217,6 +265,7 @@ final class JdbcKeyExtractor {
       key.columnNames.addAll(columns.get(table).values());
       table.primaryKey = key;
     });
+    return matched;
   }
 
   private static boolean snowflakeKeys(Connection conn, JdbcSchema schema, boolean primary)
@@ -242,6 +291,22 @@ final class JdbcKeyExtractor {
       JdbcSchema schema) throws SQLException {
     if (type.getKeyStrategy() == JdbcUtils.KeyStrategy.SNOWFLAKE) {
       return snowflakeKeys(conn, schema, true);
+    }
+    // HANA has no INFORMATION_SCHEMA and its driver returns no keys for a null table; the SYS
+    // views answer for the whole schema.
+    if (type == JdbcUtils.DatabaseSpecific.SAP_HANA) {
+      return probe(conn, () -> {
+        try (PreparedStatement st = conn.prepareStatement(
+            "SELECT TABLE_NAME, CONSTRAINT_NAME AS PK_NAME, COLUMN_NAME, POSITION AS KEY_SEQ "
+                + "FROM SYS.CONSTRAINTS WHERE SCHEMA_NAME=? AND IS_PRIMARY_KEY='TRUE' "
+                + "ORDER BY TABLE_NAME, POSITION")) {
+          st.setString(1, schema.tableSchema);
+          try (ResultSet rs = st.executeQuery()) {
+            readPrimaryKeys(rs, schema, false);
+          }
+        }
+        return null;
+      });
     }
     if (type.getKeyStrategy() == JdbcUtils.KeyStrategy.JDBC) {
       return false;
@@ -291,6 +356,24 @@ final class JdbcKeyExtractor {
       JdbcSchema schema) throws SQLException {
     if (type.getKeyStrategy() == JdbcUtils.KeyStrategy.SNOWFLAKE) {
       return snowflakeKeys(conn, schema, false);
+    }
+    if (type == JdbcUtils.DatabaseSpecific.SAP_HANA) {
+      return probe(conn, () -> {
+        try (PreparedStatement st = conn.prepareStatement("SELECT "
+            + "REFERENCED_SCHEMA_NAME AS PKTABLE_SCHEM, REFERENCED_TABLE_NAME AS PKTABLE_NAME, "
+            + "REFERENCED_COLUMN_NAME AS PKCOLUMN_NAME, SCHEMA_NAME AS FKTABLE_SCHEM, "
+            + "TABLE_NAME AS FKTABLE_NAME, COLUMN_NAME AS FKCOLUMN_NAME, POSITION AS KEY_SEQ, "
+            + "CONSTRAINT_NAME AS FK_NAME, REFERENCED_CONSTRAINT_NAME AS PK_NAME, UPDATE_RULE, "
+            + "DELETE_RULE, REPLACE(CHECK_TIME, '_', ' ') AS DEFERRABILITY "
+            + "FROM SYS.REFERENTIAL_CONSTRAINTS WHERE SCHEMA_NAME=? "
+            + "ORDER BY TABLE_NAME, CONSTRAINT_NAME, POSITION")) {
+          st.setString(1, schema.tableSchema);
+          try (ResultSet rs = st.executeQuery()) {
+            readForeignKeys(rs, schema);
+          }
+        }
+        return null;
+      });
     }
     // Db2 LUW silently returns no imported keys for a null table; its catalog provides
     // an actual schema-wide answer. Other Db2 families retain their JDBC path.
@@ -421,12 +504,14 @@ final class JdbcKeyExtractor {
         + " ORDER BY f.TABLE_NAME, f.CONSTRAINT_NAME, f.ORDINAL_POSITION";
   }
 
-  private static void readForeignKeys(ResultSet rs, JdbcSchema schema) throws SQLException {
-    readForeignKeys(rs, schema, false);
+  private static int readForeignKeys(ResultSet rs, JdbcSchema schema) throws SQLException {
+    return readForeignKeys(rs, schema, false);
   }
 
-  private static void readForeignKeys(ResultSet rs, JdbcSchema schema, boolean snowflake)
+  /** @return the number of key column rows that matched a table of the schema */
+  private static int readForeignKeys(ResultSet rs, JdbcSchema schema, boolean snowflake)
       throws SQLException {
+    int matched = 0;
     Map<JdbcTable, List<JdbcReference>> references = new LinkedHashMap<>();
     Map<JdbcReference, TreeMap<Integer, String[]>> columns = new IdentityHashMap<>();
     JdbcReference current = null;
@@ -442,6 +527,7 @@ final class JdbcKeyExtractor {
               && !fkCatalog.equalsIgnoreCase(schema.tableCatalog)) {
         continue;
       }
+      matched++;
       String fkName = JdbcUtils.getStringSafe(rs, snowflake ? "fk_name" : "FK_NAME");
       String pkCatalog = JdbcUtils.getStringSafe(rs, snowflake ? "pk_database_name" : "PKTABLE_CAT",
           schema.tableCatalog);
@@ -482,6 +568,7 @@ final class JdbcKeyExtractor {
       keys.forEach(key -> key.columns.addAll(columns.get(key).values()));
       table.foreignKeys.addAll(keys);
     });
+    return matched;
   }
 
   private static Short readDeferrability(ResultSet rs, String column) {

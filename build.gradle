@@ -101,6 +101,7 @@ dependencies {
 
     testRuntimeOnly "com.oracle.database.jdbc:ojdbc11:${findProperty('oracleJdbcVersion') ?: '23.6.0.24.10'}"
     testRuntimeOnly "com.microsoft.sqlserver:mssql-jdbc:${findProperty('mssqlJdbcVersion') ?: '12.8.1.jre11'}"
+    testRuntimeOnly "com.sap.cloud.db.jdbc:ngdbc:${findProperty('hanaJdbcVersion') ?: '2.30.11'}"
 
     testImplementation 'org.duckdb:duckdb_jdbc:1.5.2.0'
     testImplementation 'net.snowflake:snowflake-jdbc:+'
